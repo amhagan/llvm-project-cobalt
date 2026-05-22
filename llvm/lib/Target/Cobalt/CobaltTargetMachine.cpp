@@ -1,0 +1,34 @@
+//===-- CobaltTargetMachine.cpp - Cobalt target machine --------*- C++ -*-===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+#include "CobaltTargetMachine.h"
+#include "TargetInfo/CobaltTargetInfo.h"
+#include "llvm/MC/TargetRegistry.h"
+#include "llvm/Support/Compiler.h"
+
+using namespace llvm;
+
+extern "C" LLVM_ABI LLVM_EXTERNAL_VISIBILITY void LLVMInitializeCobaltTarget() {
+  RegisterTargetMachine<CobaltTargetMachine> X(getTheCobaltTarget());
+}
+
+static std::string computeDataLayout(const Triple &TT) {
+  // Current hardware-visible Cobalt pointers are 32-bit SDRAM/device offsets.
+  // Keep the first backend milestone intentionally conservative.
+  return TT.computeDataLayout();
+}
+
+CobaltTargetMachine::CobaltTargetMachine(
+    const Target &T, const Triple &TT, StringRef CPU, StringRef FS,
+    const TargetOptions &Options, std::optional<Reloc::Model> RM,
+    std::optional<CodeModel::Model> CM, CodeGenOptLevel OL, bool JIT)
+    : TargetMachine(T, computeDataLayout(TT), TT, CPU, FS, Options) {
+  this->RM = RM.value_or(Reloc::Static);
+  this->CMModel = CM.value_or(CodeModel::Small);
+  this->OptLevel = OL;
+}

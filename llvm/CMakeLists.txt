@@ -593,6 +593,7 @@ set(LLVM_ALL_TARGETS
 
 set(LLVM_ALL_EXPERIMENTAL_TARGETS
   ARC
+  Cobalt
   CSKY
   DirectX
   M68k
