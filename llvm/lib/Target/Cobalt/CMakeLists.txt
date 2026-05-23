@@ -9,6 +9,10 @@ tablegen(LLVM CobaltGenSubtargetInfo.inc -gen-subtarget)
 add_public_tablegen_target(CobaltCommonTableGen)
 
 add_llvm_target(CobaltCodeGen
+  CobaltFrameLowering.cpp
+  CobaltInstrInfo.cpp
+  CobaltRegisterInfo.cpp
+  CobaltSubtarget.cpp
   CobaltTargetMachine.cpp
 
   DEPENDS
@@ -17,6 +21,7 @@ add_llvm_target(CobaltCodeGen
   LINK_COMPONENTS
   CobaltDesc
   CobaltInfo
+  CodeGen
   Core
   Support
   Target

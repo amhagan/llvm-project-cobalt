@@ -27,8 +27,7 @@ CobaltTargetMachine::CobaltTargetMachine(
     const Target &T, const Triple &TT, StringRef CPU, StringRef FS,
     const TargetOptions &Options, std::optional<Reloc::Model> RM,
     std::optional<CodeModel::Model> CM, CodeGenOptLevel OL, bool JIT)
-    : TargetMachine(T, computeDataLayout(TT), TT, CPU, FS, Options) {
-  this->RM = RM.value_or(Reloc::Static);
-  this->CMModel = CM.value_or(CodeModel::Small);
-  this->OptLevel = OL;
-}
+    : CodeGenTargetMachineImpl(T, computeDataLayout(TT), TT, CPU, FS, Options,
+                               RM.value_or(Reloc::Static),
+                               getEffectiveCodeModel(CM, CodeModel::Small), OL),
+      Subtarget(TT, std::string(CPU), std::string(FS), *this) {}

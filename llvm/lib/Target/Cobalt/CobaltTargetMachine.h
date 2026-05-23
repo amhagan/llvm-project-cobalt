@@ -9,18 +9,25 @@
 #ifndef LLVM_LIB_TARGET_COBALT_COBALTTARGETMACHINE_H
 #define LLVM_LIB_TARGET_COBALT_COBALTTARGETMACHINE_H
 
-#include "llvm/Target/TargetMachine.h"
+#include "CobaltSubtarget.h"
+#include "llvm/CodeGen/CodeGenTargetMachineImpl.h"
 #include <optional>
 
 namespace llvm {
 
-class CobaltTargetMachine : public TargetMachine {
+class CobaltTargetMachine : public CodeGenTargetMachineImpl {
+  CobaltSubtarget Subtarget;
+
 public:
   CobaltTargetMachine(const Target &T, const Triple &TT, StringRef CPU,
                       StringRef FS, const TargetOptions &Options,
                       std::optional<Reloc::Model> RM,
                       std::optional<CodeModel::Model> CM, CodeGenOptLevel OL,
                       bool JIT);
+
+  const CobaltSubtarget *getSubtargetImpl(const Function &F) const override {
+    return &Subtarget;
+  }
 };
 
 } // namespace llvm
