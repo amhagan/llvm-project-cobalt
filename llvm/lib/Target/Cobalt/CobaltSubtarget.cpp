@@ -21,6 +21,6 @@ CobaltSubtarget::CobaltSubtarget(const Triple &TT, const std::string &CPU,
                                  const std::string &FS,
                                  const CobaltTargetMachine &TM)
     : CobaltGenSubtargetInfo(TT, CPU, CPU, FS), InstrInfo(*this),
-      FrameLowering(*this) {
+      TLInfo(TM, *this), FrameLowering(*this) {
   ParseSubtargetFeatures(CPU, CPU, FS);
 }

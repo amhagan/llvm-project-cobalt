@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-class CobaltInst<bits<8> Opcode, dag Outs, dag Ins, string Asm,
+class CobaltInst<bits<6> Opcode, dag Outs, dag Ins, string Asm,
                  list<dag> Pat = []> : Instruction {
   field bits<32> Inst;
 
@@ -17,8 +17,8 @@ class CobaltInst<bits<8> Opcode, dag Outs, dag Ins, string Asm,
   let AsmString = Asm;
   let Pattern = Pat;
 
-  let Inst{31-24} = Opcode;
-  let Inst{23-0} = 0;
+  let Inst{31-26} = Opcode;
+  let Inst{25-0} = 0;
 }
 
 class CobaltPseudo<dag Outs, dag Ins, string Asm, list<dag> Pat = []>

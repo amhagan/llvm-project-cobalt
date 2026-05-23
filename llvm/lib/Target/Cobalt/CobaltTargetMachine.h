@@ -11,11 +11,13 @@
 
 #include "CobaltSubtarget.h"
 #include "llvm/CodeGen/CodeGenTargetMachineImpl.h"
+#include <memory>
 #include <optional>
 
 namespace llvm {
 
 class CobaltTargetMachine : public CodeGenTargetMachineImpl {
+  std::unique_ptr<TargetLoweringObjectFile> TLOF;
   CobaltSubtarget Subtarget;
 
 public:
@@ -27,6 +29,10 @@ public:
 
   const CobaltSubtarget *getSubtargetImpl(const Function &F) const override {
     return &Subtarget;
+  }
+
+  TargetLoweringObjectFile *getObjFileLowering() const override {
+    return TLOF.get();
   }
 
   TargetPassConfig *createPassConfig(PassManagerBase &PM) override;

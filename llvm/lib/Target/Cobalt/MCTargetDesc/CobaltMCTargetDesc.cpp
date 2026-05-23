@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "CobaltMCTargetDesc.h"
+#include "CobaltInstPrinter.h"
 #include "CobaltMCAsmInfo.h"
 #include "TargetInfo/CobaltTargetInfo.h"
 #include "llvm/MC/MCInstrInfo.h"
@@ -35,7 +36,7 @@ MCInstrInfo *llvm::createCobaltMCInstrInfo() {
 
 static MCRegisterInfo *createCobaltMCRegisterInfo(const Triple &TT) {
   MCRegisterInfo *X = new MCRegisterInfo();
-  InitCobaltMCRegisterInfo(X, /*RA=*/0);
+  InitCobaltMCRegisterInfo(X, /*RA=*/Cobalt::R0);
   return X;
 }
 
@@ -52,11 +53,25 @@ static MCAsmInfo *createCobaltMCAsmInfo(const MCRegisterInfo &MRI,
   return new CobaltMCAsmInfo(TT, Options);
 }
 
-extern "C" LLVM_ABI LLVM_EXTERNAL_VISIBILITY void LLVMInitializeCobaltTargetMC() {
+static MCInstPrinter *createCobaltMCInstPrinter(const Triple &T,
+                                                unsigned SyntaxVariant,
+                                                const MCAsmInfo &MAI,
+                                                const MCInstrInfo &MII,
+                                                const MCRegisterInfo &MRI) {
+  if (SyntaxVariant == 0)
+    return new CobaltInstPrinter(MAI, MII, MRI);
+  return nullptr;
+}
+
+extern "C" LLVM_ABI LLVM_EXTERNAL_VISIBILITY void
+LLVMInitializeCobaltTargetMC() {
   Target &T = getTheCobaltTarget();
 
   TargetRegistry::RegisterMCAsmInfo(T, createCobaltMCAsmInfo);
   TargetRegistry::RegisterMCInstrInfo(T, createCobaltMCInstrInfo);
   TargetRegistry::RegisterMCRegInfo(T, createCobaltMCRegisterInfo);
   TargetRegistry::RegisterMCSubtargetInfo(T, createCobaltMCSubtargetInfo);
+  TargetRegistry::RegisterMCInstPrinter(T, createCobaltMCInstPrinter);
+  TargetRegistry::RegisterMCCodeEmitter(T, createCobaltMCCodeEmitter);
+  TargetRegistry::RegisterMCAsmBackend(T, createCobaltAsmBackend);
 }

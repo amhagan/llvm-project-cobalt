@@ -19,6 +19,6 @@ CobaltMCAsmInfo::CobaltMCAsmInfo(const Triple &TT,
   CalleeSaveStackSlotSize = 4;
   CommentString = ";";
   AlignmentIsInBytes = true;
-  SupportsDebugInformation = true;
+  SupportsDebugInformation = false;
   ExceptionsType = ExceptionHandling::DwarfCFI;
 }

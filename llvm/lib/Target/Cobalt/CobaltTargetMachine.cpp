@@ -7,32 +7,41 @@
 //===----------------------------------------------------------------------===//
 
 #include "CobaltTargetMachine.h"
+#include "Cobalt.h"
 #include "TargetInfo/CobaltTargetInfo.h"
+#include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/MC/TargetRegistry.h"
+#include "llvm/PassRegistry.h"
 #include "llvm/Support/Compiler.h"
-#include "llvm/Support/ErrorHandling.h"
 
 using namespace llvm;
 
 extern "C" LLVM_ABI LLVM_EXTERNAL_VISIBILITY void LLVMInitializeCobaltTarget() {
   RegisterTargetMachine<CobaltTargetMachine> X(getTheCobaltTarget());
+
+  PassRegistry &PR = *PassRegistry::getPassRegistry();
+  initializeCobaltAsmPrinterPass(PR);
+  initializeCobaltDAGToDAGISelLegacyPass(PR);
 }
 
 static std::string computeDataLayout(const Triple &TT) {
   // Current hardware-visible Cobalt pointers are 32-bit SDRAM/device offsets.
   // Keep the first backend milestone intentionally conservative.
-  return TT.computeDataLayout();
+  return "e-m:e-p:32:32-i64:64-n32-S32";
 }
 
-CobaltTargetMachine::CobaltTargetMachine(
-    const Target &T, const Triple &TT, StringRef CPU, StringRef FS,
-    const TargetOptions &Options, std::optional<Reloc::Model> RM,
-    std::optional<CodeModel::Model> CM, CodeGenOptLevel OL, bool JIT)
+CobaltTargetMachine::CobaltTargetMachine(const Target &T, const Triple &TT,
+                                         StringRef CPU, StringRef FS,
+                                         const TargetOptions &Options,
+                                         std::optional<Reloc::Model> RM,
+                                         std::optional<CodeModel::Model> CM,
+                                         CodeGenOptLevel OL, bool JIT)
     : CodeGenTargetMachineImpl(T, computeDataLayout(TT), TT, CPU, FS, Options,
                                RM.value_or(Reloc::Static),
                                getEffectiveCodeModel(CM, CodeModel::Small), OL),
       Subtarget(TT, std::string(CPU), std::string(FS), *this) {
+  TLOF = std::make_unique<TargetLoweringObjectFileELF>();
   initAsmInfo();
 }
 
@@ -51,5 +60,6 @@ TargetPassConfig *CobaltTargetMachine::createPassConfig(PassManagerBase &PM) {
 }
 
 bool CobaltPassConfig::addInstSelector() {
-  report_fatal_error("Cobalt instruction selection is not implemented yet");
+  addPass(createCobaltISelDag(getTM<CobaltTargetMachine>(), getOptLevel()));
+  return false;
 }

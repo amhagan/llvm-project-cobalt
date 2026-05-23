@@ -19,8 +19,8 @@
 using namespace llvm;
 
 CobaltRegisterInfo::CobaltRegisterInfo()
-    : CobaltGenRegisterInfo(/*RA=*/0, /*DwarfFlavour=*/0, /*EHFlavour=*/0,
-                            /*PC=*/0) {}
+    : CobaltGenRegisterInfo(/*RA=*/Cobalt::R0, /*DwarfFlavour=*/0,
+                            /*EHFlavour=*/0, /*PC=*/0) {}
 
 const MCPhysReg *
 CobaltRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
@@ -33,8 +33,7 @@ BitVector CobaltRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
 }
 
 bool CobaltRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
-                                             int SPAdj,
-                                             unsigned FIOperandNum,
+                                             int SPAdj, unsigned FIOperandNum,
                                              RegScavenger *RS) const {
   return false;
 }

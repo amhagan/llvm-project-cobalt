@@ -10,7 +10,9 @@
 #define LLVM_LIB_TARGET_COBALT_COBALTSUBTARGET_H
 
 #include "CobaltFrameLowering.h"
+#include "CobaltISelLowering.h"
 #include "CobaltInstrInfo.h"
+#include "llvm/CodeGen/SelectionDAGTargetInfo.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include <string>
 
@@ -23,6 +25,8 @@ class CobaltTargetMachine;
 
 class CobaltSubtarget : public CobaltGenSubtargetInfo {
   CobaltInstrInfo InstrInfo;
+  CobaltTargetLowering TLInfo;
+  SelectionDAGTargetInfo TSInfo;
   CobaltFrameLowering FrameLowering;
 
 public:
@@ -37,6 +41,12 @@ public:
   }
   const CobaltRegisterInfo *getRegisterInfo() const override {
     return &InstrInfo.getRegisterInfo();
+  }
+  const CobaltTargetLowering *getTargetLowering() const override {
+    return &TLInfo;
+  }
+  const SelectionDAGTargetInfo *getSelectionDAGInfo() const override {
+    return &TSInfo;
   }
 };
 

@@ -9,10 +9,32 @@
 #ifndef LLVM_LIB_TARGET_COBALT_MCTARGETDESC_COBALTMCTARGETDESC_H
 #define LLVM_LIB_TARGET_COBALT_MCTARGETDESC_COBALTMCTARGETDESC_H
 
+#include <cstdint>
+#include <memory>
+
 namespace llvm {
+class MCAsmBackend;
+class MCCodeEmitter;
+class MCContext;
 class MCInstrInfo;
+class MCObjectTargetWriter;
+class MCRegisterInfo;
+class MCSubtargetInfo;
+class MCTargetOptions;
+class Target;
+
+std::unique_ptr<MCObjectTargetWriter>
+createCobaltELFObjectWriter(uint8_t OSABI);
 
 MCInstrInfo *createCobaltMCInstrInfo();
+
+MCCodeEmitter *createCobaltMCCodeEmitter(const MCInstrInfo &MCII,
+                                         MCContext &Ctx);
+
+MCAsmBackend *createCobaltAsmBackend(const Target &T,
+                                     const MCSubtargetInfo &STI,
+                                     const MCRegisterInfo &MRI,
+                                     const MCTargetOptions &Options);
 } // namespace llvm
 
 #define GET_REGINFO_ENUM
