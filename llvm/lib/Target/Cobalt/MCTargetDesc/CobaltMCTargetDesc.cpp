@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "CobaltMCTargetDesc.h"
+#include "CobaltMCAsmInfo.h"
 #include "TargetInfo/CobaltTargetInfo.h"
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
@@ -45,9 +46,16 @@ createCobaltMCSubtargetInfo(const Triple &TT, StringRef CPU, StringRef FS) {
   return createCobaltMCSubtargetInfoImpl(TT, CPU, /*TuneCPU=*/CPU, FS);
 }
 
+static MCAsmInfo *createCobaltMCAsmInfo(const MCRegisterInfo &MRI,
+                                        const Triple &TT,
+                                        const MCTargetOptions &Options) {
+  return new CobaltMCAsmInfo(TT, Options);
+}
+
 extern "C" LLVM_ABI LLVM_EXTERNAL_VISIBILITY void LLVMInitializeCobaltTargetMC() {
   Target &T = getTheCobaltTarget();
 
+  TargetRegistry::RegisterMCAsmInfo(T, createCobaltMCAsmInfo);
   TargetRegistry::RegisterMCInstrInfo(T, createCobaltMCInstrInfo);
   TargetRegistry::RegisterMCRegInfo(T, createCobaltMCRegisterInfo);
   TargetRegistry::RegisterMCSubtargetInfo(T, createCobaltMCSubtargetInfo);

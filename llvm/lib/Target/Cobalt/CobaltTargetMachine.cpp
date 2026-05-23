@@ -32,7 +32,9 @@ CobaltTargetMachine::CobaltTargetMachine(
     : CodeGenTargetMachineImpl(T, computeDataLayout(TT), TT, CPU, FS, Options,
                                RM.value_or(Reloc::Static),
                                getEffectiveCodeModel(CM, CodeModel::Small), OL),
-      Subtarget(TT, std::string(CPU), std::string(FS), *this) {}
+      Subtarget(TT, std::string(CPU), std::string(FS), *this) {
+  initAsmInfo();
+}
 
 namespace {
 class CobaltPassConfig : public TargetPassConfig {

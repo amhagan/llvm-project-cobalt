@@ -9,6 +9,9 @@
 #include "CobaltSubtarget.h"
 #include "CobaltTargetMachine.h"
 
+#define DEBUG_TYPE "cobalt-subtarget"
+
+#define GET_SUBTARGETINFO_TARGET_DESC
 #define GET_SUBTARGETINFO_CTOR
 #include "CobaltGenSubtargetInfo.inc"
 
