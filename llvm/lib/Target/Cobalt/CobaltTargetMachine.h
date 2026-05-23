@@ -28,6 +28,8 @@ public:
   const CobaltSubtarget *getSubtargetImpl(const Function &F) const override {
     return &Subtarget;
   }
+
+  TargetPassConfig *createPassConfig(PassManagerBase &PM) override;
 };
 
 } // namespace llvm

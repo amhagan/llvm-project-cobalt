@@ -8,8 +8,10 @@
 
 #include "CobaltTargetMachine.h"
 #include "TargetInfo/CobaltTargetInfo.h"
+#include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/Compiler.h"
+#include "llvm/Support/ErrorHandling.h"
 
 using namespace llvm;
 
@@ -31,3 +33,21 @@ CobaltTargetMachine::CobaltTargetMachine(
                                RM.value_or(Reloc::Static),
                                getEffectiveCodeModel(CM, CodeModel::Small), OL),
       Subtarget(TT, std::string(CPU), std::string(FS), *this) {}
+
+namespace {
+class CobaltPassConfig : public TargetPassConfig {
+public:
+  CobaltPassConfig(CobaltTargetMachine &TM, PassManagerBase &PM)
+      : TargetPassConfig(TM, PM) {}
+
+  bool addInstSelector() override;
+};
+} // namespace
+
+TargetPassConfig *CobaltTargetMachine::createPassConfig(PassManagerBase &PM) {
+  return new CobaltPassConfig(*this, PM);
+}
+
+bool CobaltPassConfig::addInstSelector() {
+  report_fatal_error("Cobalt instruction selection is not implemented yet");
+}
