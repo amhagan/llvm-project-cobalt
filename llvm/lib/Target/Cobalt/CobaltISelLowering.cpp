@@ -11,12 +11,13 @@
 #include "MCTargetDesc/CobaltMCTargetDesc.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/IR/Type.h"
 #include "llvm/Support/ErrorHandling.h"
 
 using namespace llvm;
 
 static const MCPhysReg ArgRegs[] = {Cobalt::R0, Cobalt::R1, Cobalt::R2,
-                                    Cobalt::R3};
+                                    Cobalt::R3, Cobalt::R4, Cobalt::R5};
 
 CobaltTargetLowering::CobaltTargetLowering(const TargetMachine &TM,
                                            const CobaltSubtarget &STI)
@@ -29,6 +30,12 @@ CobaltTargetLowering::CobaltTargetLowering(const TargetMachine &TM,
   setStackPointerRegisterToSaveRestore(Cobalt::R0);
   setMinFunctionAlignment(Align(4));
   setPrefFunctionAlignment(Align(4));
+
+  setOperationAction(ISD::SETCC, MVT::i32, Legal);
+  setOperationAction(ISD::SELECT_CC, MVT::i32, Custom);
+  setOperationAction(ISD::BR_CC, MVT::i32, Custom);
+  setOperationAction(ISD::STACKSAVE, MVT::Other, Expand);
+  setOperationAction(ISD::STACKRESTORE, MVT::Other, Expand);
 }
 
 SDValue CobaltTargetLowering::LowerFormalArguments(
@@ -38,17 +45,30 @@ SDValue CobaltTargetLowering::LowerFormalArguments(
   if (IsVarArg)
     report_fatal_error("Cobalt argument lowering is not implemented yet");
   if (Ins.size() > std::size(ArgRegs))
-    report_fatal_error("Cobalt supports at most four smoke-test arguments");
+    report_fatal_error("Cobalt supports at most six smoke-test arguments");
 
   MachineFunction &MF = DAG.getMachineFunction();
   MachineRegisterInfo &MRI = MF.getRegInfo();
+  unsigned ScalarArg = 0;
 
   for (unsigned I = 0, E = Ins.size(); I != E; ++I) {
     if (Ins[I].VT != MVT::i32)
       report_fatal_error("Cobalt only supports i32 smoke-test arguments");
 
+    // Cobalt compute kernels receive buffer pointers as symbolic binding
+    // handles. The SIMD hardware gets real buffer bases from the descriptor
+    // table selected by VLD/VST imm bits, while scalar launch coordinates are
+    // seeded directly into r0/r1/r2 by CP firmware.
+    if (Ins[I].OrigTy && Ins[I].OrigTy->isPointerTy()) {
+      InVals.push_back(DAG.getConstant(0, DL, MVT::i32));
+      continue;
+    }
+
+    if (ScalarArg >= std::size(ArgRegs))
+      report_fatal_error("Cobalt supports at most six scalar arguments");
+
     Register VReg = MRI.createVirtualRegister(&Cobalt::VGPR32RegClass);
-    MRI.addLiveIn(ArgRegs[I], VReg);
+    MRI.addLiveIn(ArgRegs[ScalarArg++], VReg);
     InVals.push_back(DAG.getCopyFromReg(Chain, DL, VReg, MVT::i32));
   }
 
@@ -86,4 +106,31 @@ CobaltTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
   RetOps.push_back(DAG.getRegister(Cobalt::R0, MVT::i32));
   RetOps.push_back(Glue);
   return DAG.getNode(CobaltISD::RET, DL, MVT::Other, RetOps);
+}
+
+SDValue CobaltTargetLowering::LowerOperation(SDValue Op,
+                                             SelectionDAG &DAG) const {
+  switch (Op.getOpcode()) {
+  case ISD::BR_CC: {
+    SDLoc DL(Op);
+    auto *CC = cast<CondCodeSDNode>(Op.getOperand(1));
+    SDValue Cond = DAG.getSetCC(DL, MVT::i32, Op.getOperand(2),
+                                Op.getOperand(3), CC->get());
+    return DAG.getNode(CobaltISD::BRCOND, DL, MVT::Other, Op.getOperand(0),
+                       Cond, Op.getOperand(4));
+  }
+  case ISD::SELECT_CC: {
+    SDLoc DL(Op);
+    auto *CC = cast<CondCodeSDNode>(Op.getOperand(4));
+    SDValue Cond = DAG.getSetCC(DL, MVT::i32, Op.getOperand(0),
+                                Op.getOperand(1), CC->get());
+    SDValue TrueVal = Op.getOperand(2);
+    SDValue FalseVal = Op.getOperand(3);
+    SDValue Diff = DAG.getNode(ISD::SUB, DL, MVT::i32, TrueVal, FalseVal);
+    SDValue Scaled = DAG.getNode(ISD::MUL, DL, MVT::i32, Cond, Diff);
+    return DAG.getNode(ISD::ADD, DL, MVT::i32, FalseVal, Scaled);
+  }
+  default:
+    report_fatal_error("unexpected Cobalt custom lowering opcode");
+  }
 }

@@ -20,6 +20,7 @@ namespace CobaltISD {
 enum NodeType : unsigned {
   FIRST_NUMBER = ISD::BUILTIN_OP_END,
   RET,
+  BRCOND,
 };
 } // namespace CobaltISD
 
@@ -43,6 +44,8 @@ public:
                       const SmallVectorImpl<ISD::OutputArg> &Outs,
                       const SmallVectorImpl<SDValue> &OutVals, const SDLoc &DL,
                       SelectionDAG &DAG) const override;
+
+  SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
 };
 
 } // namespace llvm

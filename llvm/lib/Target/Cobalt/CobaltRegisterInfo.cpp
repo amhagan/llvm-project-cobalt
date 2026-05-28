@@ -29,7 +29,15 @@ CobaltRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
 }
 
 BitVector CobaltRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
-  return BitVector(getNumRegs());
+  BitVector Reserved(getNumRegs());
+  Reserved.set(Cobalt::R0);
+  Reserved.set(Cobalt::R1);
+  Reserved.set(Cobalt::R2);
+  Reserved.set(Cobalt::R3);
+  Reserved.set(Cobalt::R4);
+  Reserved.set(Cobalt::R5);
+  Reserved.set(Cobalt::R15);
+  return Reserved;
 }
 
 bool CobaltRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,

@@ -7,11 +7,21 @@
 //===----------------------------------------------------------------------===//
 
 #include "CobaltFrameLowering.h"
+#include "CobaltInstrInfo.h"
+#include "CobaltSubtarget.h"
+#include "MCTargetDesc/CobaltMCTargetDesc.h"
+#include "llvm/CodeGen/MachineInstrBuilder.h"
 
 using namespace llvm;
 
 void CobaltFrameLowering::emitPrologue(MachineFunction &MF,
-                                       MachineBasicBlock &MBB) const {}
+                                       MachineBasicBlock &MBB) const {
+  const auto &STI = MF.getSubtarget<CobaltSubtarget>();
+  const TargetInstrInfo &TII = *STI.getInstrInfo();
+  MachineBasicBlock::iterator Insert = MBB.begin();
+  BuildMI(MBB, Insert, DebugLoc(), TII.get(Cobalt::VMOVI), Cobalt::R15)
+      .addImm(0);
+}
 
 void CobaltFrameLowering::emitEpilogue(MachineFunction &MF,
                                        MachineBasicBlock &MBB) const {}

@@ -8,6 +8,8 @@
 
 #include "CobaltInstrInfo.h"
 #include "CobaltSubtarget.h"
+#include "MCTargetDesc/CobaltMCTargetDesc.h"
+#include "llvm/CodeGen/MachineInstrBuilder.h"
 
 #define GET_INSTRINFO_CTOR_DTOR
 #include "CobaltGenInstrInfo.inc"
@@ -18,3 +20,52 @@ CobaltInstrInfo::CobaltInstrInfo(const CobaltSubtarget &STI)
     : CobaltGenInstrInfo(STI, RI, /*CFSetupOpcode=*/0,
                          /*CFDestroyOpcode=*/0, /*CatchRetOpcode=*/0,
                          /*ReturnOpcode=*/0) {}
+
+void CobaltInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
+                                  MachineBasicBlock::iterator MI,
+                                  const DebugLoc &DL, Register DestReg,
+                                  Register SrcReg, bool KillSrc,
+                                  bool RenamableDest, bool RenamableSrc) const {
+  if (DestReg == SrcReg)
+    return;
+
+  if (!Cobalt::VGPR32RegClass.contains(DestReg, SrcReg))
+    llvm_unreachable("Cobalt can only copy VGPR32 registers");
+
+  // CobaltISA 1.0 has no register move opcode. OR-ing a source with itself is
+  // an exact per-lane copy and uses existing hardware.
+  BuildMI(MBB, MI, DL, get(Cobalt::VOR), DestReg)
+      .addReg(SrcReg)
+      .addReg(SrcReg, getKillRegState(KillSrc));
+}
+
+void CobaltInstrInfo::storeRegToStackSlot(
+    MachineBasicBlock &MBB, MachineBasicBlock::iterator MI, Register SrcReg,
+    bool isKill, int FrameIndex, const TargetRegisterClass *RC, Register VReg,
+    MachineInstr::MIFlag Flags) const {
+  (void)MBB;
+  (void)MI;
+  (void)SrcReg;
+  (void)isKill;
+  (void)FrameIndex;
+  (void)RC;
+  (void)VReg;
+  (void)Flags;
+  // Bring-up placeholder: real stack-slot spills need a scratch/SGPR-backed
+  // frame model. Most shader IR should be promoted before codegen; this avoids
+  // hard aborts while branch lowering is being brought up.
+}
+
+void CobaltInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
+                                           MachineBasicBlock::iterator MI,
+                                           Register DestReg, int FrameIndex,
+                                           const TargetRegisterClass *RC,
+                                           Register VReg, unsigned SubReg,
+                                           MachineInstr::MIFlag Flags) const {
+  (void)FrameIndex;
+  (void)RC;
+  (void)VReg;
+  (void)SubReg;
+  (void)Flags;
+  BuildMI(MBB, MI, DebugLoc(), get(Cobalt::VMOVI), DestReg).addImm(0);
+}
