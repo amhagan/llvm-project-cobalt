@@ -58,6 +58,16 @@ def VMOVI : CobaltInst<0x04,
   let Inst{25-22} = rd;
   let Inst{15-0} = imm;
 }
+def VMOVIF : CobaltInst<0x04,
+                        (outs FGPR32:$rd),
+                        (ins i32imm:$imm),
+                        "vmovi $rd, $imm"> {
+  bits<4> rd;
+  bits<16> imm;
+
+  let Inst{25-22} = rd;
+  let Inst{15-0} = imm;
+}
 def VCMPULT : CobaltRRR<0x05, "vcmpult",
                         [(set VGPR32:$rd,
                               (setult VGPR32:$ra, VGPR32:$rb))]>;
@@ -75,6 +85,51 @@ def VAND : CobaltRRR<0x0b, "vand",
                      [(set VGPR32:$rd, (and VGPR32:$ra, VGPR32:$rb))]>;
 def VOR  : CobaltRRR<0x0c, "vor",
                      [(set VGPR32:$rd, (or VGPR32:$ra, VGPR32:$rb))]>;
+class CobaltFRR<bits<6> Opcode, string Mnemonic, list<dag> Pat = []>
+    : CobaltInst<Opcode,
+                 (outs FGPR32:$rd),
+                 (ins FGPR32:$ra, FGPR32:$rb),
+                 !strconcat(Mnemonic, " $rd, $ra, $rb"),
+                 Pat> {
+  bits<4> rd;
+  bits<4> ra;
+  bits<4> rb;
+
+  let Inst{25-22} = rd;
+  let Inst{21-18} = ra;
+  let Inst{17-14} = rb;
+}
+
+def VFADD : CobaltFRR<0x0d, "vfadd",
+                      [(set FGPR32:$rd, (fadd FGPR32:$ra, FGPR32:$rb))]>;
+def VFMUL : CobaltFRR<0x0e, "vfmul",
+                      [(set FGPR32:$rd, (fmul FGPR32:$ra, FGPR32:$rb))]>;
+def VMOVHI : CobaltInst<0x0f,
+                        (outs VGPR32:$rd),
+                        (ins VGPR32:$ra, i32imm:$imm),
+                        "vmovhi $rd, $ra, $imm"> {
+  bits<4> rd;
+  bits<4> ra;
+  bits<16> imm;
+
+  // rd = (ra & 0xffff) | (imm << 16). This gives the backend a compact
+  // two-instruction materialization path for arbitrary 32-bit lane constants.
+  let Inst{25-22} = rd;
+  let Inst{21-18} = ra;
+  let Inst{15-0} = imm;
+}
+def VMOVHIF : CobaltInst<0x0f,
+                         (outs FGPR32:$rd),
+                         (ins FGPR32:$ra, i32imm:$imm),
+                         "vmovhi $rd, $ra, $imm"> {
+  bits<4> rd;
+  bits<4> ra;
+  bits<16> imm;
+
+  let Inst{25-22} = rd;
+  let Inst{21-18} = ra;
+  let Inst{15-0} = imm;
+}
 
 def VLD : CobaltInst<0x10,
                      (outs VGPR32:$rd),
@@ -90,6 +145,22 @@ def VLD : CobaltInst<0x10,
   // LLVM pointer memory is Vulkan descriptor memory during backend bring-up.
   // Scratch memory will get explicit target nodes once stack/private memory is
   // modelled for real.
+  let Inst{13} = 1;
+  let Inst{12} = 1;
+  let mayLoad = 1;
+}
+
+def VLDF : CobaltInst<0x10,
+                      (outs FGPR32:$rd),
+                      (ins VGPR32:$addr),
+                      "vld $rd, [$addr]",
+                      [(set FGPR32:$rd, (load VGPR32:$addr))]> {
+  bits<4> rd;
+  bits<4> addr;
+
+  let Inst{25-22} = rd;
+  let Inst{21-18} = addr;
+  let Inst{17-14} = 15;
   let Inst{13} = 1;
   let Inst{12} = 1;
   let mayLoad = 1;
@@ -113,6 +184,66 @@ def VST : CobaltInst<0x11,
   // pass should replace this fixed policy.
   let Inst{0} = 1;
   let mayStore = 1;
+  let hasSideEffects = 1;
+}
+
+def VSTF : CobaltInst<0x11,
+                      (outs),
+                      (ins FGPR32:$src, VGPR32:$addr),
+                      "vst $src, [$addr]",
+                      [(store FGPR32:$src, VGPR32:$addr)]> {
+  bits<4> src;
+  bits<4> addr;
+
+  let Inst{25-22} = src;
+  let Inst{21-18} = addr;
+  let Inst{17-14} = 15;
+  let Inst{13} = 1;
+  let Inst{12} = 1;
+  let Inst{0} = 1;
+  let mayStore = 1;
+  let hasSideEffects = 1;
+}
+
+def VLDS : CobaltInst<0x12,
+                      (outs VGPR32:$rd),
+                      (ins VGPR32:$addr),
+                      "vlds $rd, [$addr]"> {
+  bits<4> rd;
+  bits<4> addr;
+
+  // Workgroup/shared memory is byte-addressed. The current b32 form requires
+  // bits [1:0] of $addr to be zero; unaligned behavior is undefined during
+  // bring-up. Future b8/b16/b64 forms should keep the same byte-offset model.
+  let Inst{25-22} = rd;
+  let Inst{21-18} = addr;
+  let Inst{17-14} = 15;
+  let mayLoad = 1;
+}
+
+def VSTS : CobaltInst<0x13,
+                      (outs),
+                      (ins VGPR32:$src, VGPR32:$addr),
+                      "vsts $src, [$addr]"> {
+  bits<4> src;
+  bits<4> addr;
+
+  // Workgroup/shared memory is byte-addressed. The current b32 form requires
+  // bits [1:0] of $addr to be zero; unaligned behavior is undefined during
+  // bring-up. Future b8/b16/b64 forms should keep the same byte-offset model.
+  let Inst{25-22} = src;
+  let Inst{21-18} = addr;
+  let Inst{17-14} = 15;
+  let mayStore = 1;
+  let hasSideEffects = 1;
+}
+
+def VBARRIER : CobaltInst<0x14,
+                          (outs),
+                          (ins),
+                          "vbarrier",
+                          [(atomic_fence timm, timm)]> {
+  let isBarrier = 1;
   let hasSideEffects = 1;
 }
 

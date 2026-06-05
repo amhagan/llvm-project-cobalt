@@ -23,6 +23,7 @@ CobaltTargetLowering::CobaltTargetLowering(const TargetMachine &TM,
                                            const CobaltSubtarget &STI)
     : TargetLowering(TM, STI) {
   addRegisterClass(MVT::i32, &Cobalt::VGPR32RegClass);
+  addRegisterClass(MVT::f32, &Cobalt::FGPR32RegClass);
   computeRegisterProperties(STI.getRegisterInfo());
 
   setBooleanContents(ZeroOrOneBooleanContent);
@@ -32,8 +33,12 @@ CobaltTargetLowering::CobaltTargetLowering(const TargetMachine &TM,
   setPrefFunctionAlignment(Align(4));
 
   setOperationAction(ISD::SETCC, MVT::i32, Legal);
+  setOperationAction(ISD::ConstantFP, MVT::f32, Legal);
+  setOperationAction(ISD::FADD, MVT::f32, Legal);
+  setOperationAction(ISD::FMUL, MVT::f32, Legal);
   setOperationAction(ISD::SELECT_CC, MVT::i32, Custom);
   setOperationAction(ISD::BR_CC, MVT::i32, Custom);
+  setOperationAction(ISD::ATOMIC_FENCE, MVT::Other, Legal);
   setOperationAction(ISD::STACKSAVE, MVT::Other, Expand);
   setOperationAction(ISD::STACKRESTORE, MVT::Other, Expand);
 }

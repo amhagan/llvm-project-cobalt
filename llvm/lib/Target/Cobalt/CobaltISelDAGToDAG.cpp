@@ -9,7 +9,9 @@
 #include "Cobalt.h"
 #include "CobaltISelLowering.h"
 #include "CobaltTargetMachine.h"
+#include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
+#include "llvm/CodeGen/SelectionDAGNodes.h"
 #include "llvm/Support/Debug.h"
 
 using namespace llvm;
@@ -18,6 +20,31 @@ using namespace llvm;
 #define PASS_NAME "Cobalt DAG->DAG Instruction Selection"
 
 namespace {
+constexpr unsigned WorkgroupAddressSpace = 3;
+
+static uint64_t getFrameObjectByteOffset(MachineFunction &MF, int FrameIndex) {
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  uint64_t Offset = 0;
+
+  for (int I = MFI.getObjectIndexBegin(), E = MFI.getObjectIndexEnd(); I != E;
+       ++I) {
+    if (I < 0 || MFI.isDeadObjectIndex(I))
+      continue;
+
+    const int64_t Size = MFI.getObjectSize(I);
+    if (Size <= 0)
+      report_fatal_error(
+          "Cobalt shared/private frame objects must have fixed size");
+
+    Offset = alignTo(Offset, MFI.getObjectAlign(I));
+    if (I == FrameIndex)
+      return Offset;
+    Offset += static_cast<uint64_t>(Size);
+  }
+
+  report_fatal_error("Cobalt frame index was not in MachineFrameInfo");
+}
+
 class CobaltDAGToDAGISel : public SelectionDAGISel {
 public:
   CobaltDAGToDAGISel() = delete;
@@ -57,14 +84,59 @@ void CobaltDAGToDAGISel::Select(SDNode *N) {
     CurDAG->SelectNodeTo(N, Cobalt::BRCOND, MVT::Other, N->getOperand(1),
                          N->getOperand(2), N->getOperand(0));
     return;
+  case ISD::LOAD: {
+    auto *Ld = cast<LoadSDNode>(N);
+    if (Ld->getAddressSpace() == WorkgroupAddressSpace &&
+        Ld->getMemoryVT() == MVT::i32) {
+      CurDAG->SelectNodeTo(N, Cobalt::VLDS, MVT::i32, MVT::Other,
+                           N->getOperand(1), N->getOperand(0));
+      return;
+    }
+    break;
+  }
+  case ISD::STORE: {
+    auto *St = cast<StoreSDNode>(N);
+    if (St->getAddressSpace() == WorkgroupAddressSpace &&
+        St->getMemoryVT() == MVT::i32) {
+      CurDAG->SelectNodeTo(N, Cobalt::VSTS, MVT::Other, N->getOperand(1),
+                           N->getOperand(2), N->getOperand(0));
+      return;
+    }
+    break;
+  }
+  case ISD::ConstantFP: {
+    auto *CFP = cast<ConstantFPSDNode>(N);
+    if (N->getValueType(0) != MVT::f32)
+      break;
+
+    const APInt Bits = CFP->getValueAPF().bitcastToAPInt();
+    const uint32_t Raw = static_cast<uint32_t>(Bits.getZExtValue());
+    const uint32_t Lo = Raw & 0xffffu;
+    const uint32_t Hi = (Raw >> 16) & 0xffffu;
+
+    SDValue LoImm = CurDAG->getTargetConstant(Lo, DL, MVT::i32);
+    SDNode *LoNode =
+        CurDAG->getMachineNode(Cobalt::VMOVIF, DL, MVT::f32, LoImm);
+    if (Hi == 0) {
+      ReplaceNode(N, LoNode);
+      return;
+    }
+
+    SDValue HiImm = CurDAG->getTargetConstant(Hi, DL, MVT::i32);
+    CurDAG->SelectNodeTo(N, Cobalt::VMOVHIF, MVT::f32, SDValue(LoNode, 0),
+                         HiImm);
+    return;
+  }
   case ISD::FrameIndex: {
-    // Bring-up fallback: Cobalt does not have real stack addressing yet. Use
-    // a null address placeholder so non-promoted address temps do not abort
-    // instruction selection while scalar lowering is still immature. Do not
-    // replace this with a chained CopyFromReg: FrameIndex is a pure value node
-    // and mixing chain results here can corrupt SelectionDAG CSE bookkeeping.
-    SDValue Zero = CurDAG->getTargetConstant(0, DL, MVT::i32);
-    CurDAG->SelectNodeTo(N, Cobalt::VMOVI, MVT::i32, Zero);
+    const int FI = cast<FrameIndexSDNode>(N)->getIndex();
+    const uint64_t Offset =
+        getFrameObjectByteOffset(CurDAG->getMachineFunction(), FI);
+    if (Offset > 0xffff)
+      report_fatal_error("Cobalt frame object offset exceeds VMOVI imm16");
+
+    SDValue OffsetImm =
+        CurDAG->getTargetConstant(static_cast<unsigned>(Offset), DL, MVT::i32);
+    CurDAG->SelectNodeTo(N, Cobalt::VMOVI, MVT::i32, OffsetImm);
     return;
   }
   case ISD::SHL: {
