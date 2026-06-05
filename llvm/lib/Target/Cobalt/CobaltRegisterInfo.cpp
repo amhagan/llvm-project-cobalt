@@ -36,6 +36,7 @@ BitVector CobaltRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   Reserved.set(Cobalt::R3);
   Reserved.set(Cobalt::R4);
   Reserved.set(Cobalt::R5);
+  Reserved.set(Cobalt::R14);
   Reserved.set(Cobalt::R15);
   return Reserved;
 }

@@ -16,8 +16,11 @@
 
 using namespace llvm;
 
-static const MCPhysReg ArgRegs[] = {Cobalt::R0, Cobalt::R1, Cobalt::R2,
-                                    Cobalt::R3, Cobalt::R4, Cobalt::R5};
+static const MCPhysReg ArgRegs[] = {
+    Cobalt::R0,  Cobalt::R1,  Cobalt::R2,  Cobalt::R3,  Cobalt::R4,
+    Cobalt::R5,  Cobalt::R6,  Cobalt::R7,  Cobalt::R8,  Cobalt::R9,
+    Cobalt::R10, Cobalt::R11, Cobalt::R12, Cobalt::R13,
+};
 
 CobaltTargetLowering::CobaltTargetLowering(const TargetMachine &TM,
                                            const CobaltSubtarget &STI)
@@ -49,9 +52,6 @@ SDValue CobaltTargetLowering::LowerFormalArguments(
     SelectionDAG &DAG, SmallVectorImpl<SDValue> &InVals) const {
   if (IsVarArg)
     report_fatal_error("Cobalt argument lowering is not implemented yet");
-  if (Ins.size() > std::size(ArgRegs))
-    report_fatal_error("Cobalt supports at most six smoke-test arguments");
-
   MachineFunction &MF = DAG.getMachineFunction();
   MachineRegisterInfo &MRI = MF.getRegInfo();
   unsigned ScalarArg = 0;
@@ -63,14 +63,15 @@ SDValue CobaltTargetLowering::LowerFormalArguments(
     // Cobalt compute kernels receive buffer pointers as symbolic binding
     // handles. The SIMD hardware gets real buffer bases from the descriptor
     // table selected by VLD/VST imm bits, while scalar launch coordinates are
-    // seeded directly into r0/r1/r2 by CP firmware.
+    // supplied by the CP launch ABI. Keep r14/r15 reserved for the hardware
+    // lane id and compiler zero register conventions.
     if (Ins[I].OrigTy && Ins[I].OrigTy->isPointerTy()) {
       InVals.push_back(DAG.getConstant(0, DL, MVT::i32));
       continue;
     }
 
     if (ScalarArg >= std::size(ArgRegs))
-      report_fatal_error("Cobalt supports at most six scalar arguments");
+      report_fatal_error("Cobalt supports at most fourteen scalar arguments");
 
     Register VReg = MRI.createVirtualRegister(&Cobalt::VGPR32RegClass);
     MRI.addLiveIn(ArgRegs[ScalarArg++], VReg);
