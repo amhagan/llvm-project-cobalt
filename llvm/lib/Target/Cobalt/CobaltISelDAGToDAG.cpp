@@ -55,6 +55,8 @@ public:
 private:
 #include "CobaltGenDAGISel.inc"
 
+  SDValue materializeI32(uint32_t Raw, const SDLoc &DL);
+  SDValue materializeF32(uint32_t Raw, const SDLoc &DL);
   void Select(SDNode *N) override;
 };
 
@@ -70,6 +72,37 @@ public:
 char CobaltDAGToDAGISelLegacy::ID = 0;
 
 INITIALIZE_PASS(CobaltDAGToDAGISelLegacy, DEBUG_TYPE, PASS_NAME, false, false)
+
+SDValue CobaltDAGToDAGISel::materializeI32(uint32_t Raw, const SDLoc &DL) {
+  const uint32_t Lo = Raw & 0xffffu;
+  const uint32_t Hi = (Raw >> 16) & 0xffffu;
+
+  SDValue LoImm = CurDAG->getTargetConstant(Lo, DL, MVT::i32);
+  SDNode *LoNode = CurDAG->getMachineNode(Cobalt::VMOVI, DL, MVT::i32, LoImm);
+  if (Hi == 0)
+    return SDValue(LoNode, 0);
+
+  SDValue HiImm = CurDAG->getTargetConstant(Hi, DL, MVT::i32);
+  SDNode *HiNode = CurDAG->getMachineNode(Cobalt::VMOVHI, DL, MVT::i32,
+                                          SDValue(LoNode, 0), HiImm);
+  return SDValue(HiNode, 0);
+}
+
+SDValue CobaltDAGToDAGISel::materializeF32(uint32_t Raw, const SDLoc &DL) {
+  const uint32_t Lo = Raw & 0xffffu;
+  const uint32_t Hi = (Raw >> 16) & 0xffffu;
+
+  SDValue LoImm = CurDAG->getTargetConstant(Lo, DL, MVT::i32);
+  SDNode *LoNode =
+      CurDAG->getMachineNode(Cobalt::VMOVIF, DL, MVT::f32, LoImm);
+  if (Hi == 0)
+    return SDValue(LoNode, 0);
+
+  SDValue HiImm = CurDAG->getTargetConstant(Hi, DL, MVT::i32);
+  SDNode *HiNode = CurDAG->getMachineNode(Cobalt::VMOVHIF, DL, MVT::f32,
+                                          SDValue(LoNode, 0), HiImm);
+  return SDValue(HiNode, 0);
+}
 
 void CobaltDAGToDAGISel::Select(SDNode *N) {
   if (N->isMachineOpcode()) {
@@ -102,6 +135,28 @@ void CobaltDAGToDAGISel::Select(SDNode *N) {
                            N->getOperand(2), N->getOperand(0));
       return;
     }
+    if (St->getMemoryVT() == MVT::f32) {
+      auto *CFP = dyn_cast<ConstantFPSDNode>(N->getOperand(1));
+      if (CFP) {
+        const APInt Bits = CFP->getValueAPF().bitcastToAPInt();
+        const uint32_t Raw = static_cast<uint32_t>(Bits.getZExtValue());
+        SDValue Src = materializeF32(Raw, DL);
+        CurDAG->SelectNodeTo(N, Cobalt::VSTF, MVT::Other, Src,
+                             N->getOperand(2), N->getOperand(0));
+        return;
+      }
+    }
+    if (St->getMemoryVT() == MVT::i32) {
+      auto *C = dyn_cast<ConstantSDNode>(N->getOperand(1));
+      if (C) {
+        const uint32_t Raw =
+            static_cast<uint32_t>(C->getAPIntValue().getZExtValue());
+        SDValue Src = materializeI32(Raw, DL);
+        CurDAG->SelectNodeTo(N, Cobalt::VST, MVT::Other, Src,
+                             N->getOperand(2), N->getOperand(0));
+        return;
+      }
+    }
     break;
   }
   case ISD::ConstantFP: {
@@ -111,20 +166,7 @@ void CobaltDAGToDAGISel::Select(SDNode *N) {
 
     const APInt Bits = CFP->getValueAPF().bitcastToAPInt();
     const uint32_t Raw = static_cast<uint32_t>(Bits.getZExtValue());
-    const uint32_t Lo = Raw & 0xffffu;
-    const uint32_t Hi = (Raw >> 16) & 0xffffu;
-
-    SDValue LoImm = CurDAG->getTargetConstant(Lo, DL, MVT::i32);
-    SDNode *LoNode =
-        CurDAG->getMachineNode(Cobalt::VMOVIF, DL, MVT::f32, LoImm);
-    if (Hi == 0) {
-      ReplaceNode(N, LoNode);
-      return;
-    }
-
-    SDValue HiImm = CurDAG->getTargetConstant(Hi, DL, MVT::i32);
-    CurDAG->SelectNodeTo(N, Cobalt::VMOVHIF, MVT::f32, SDValue(LoNode, 0),
-                         HiImm);
+    ReplaceNode(N, materializeF32(Raw, DL).getNode());
     return;
   }
   case ISD::FrameIndex: {
