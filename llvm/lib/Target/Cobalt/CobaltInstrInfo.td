@@ -247,6 +247,40 @@ def VBARRIER : CobaltInst<0x14,
   let hasSideEffects = 1;
 }
 
+def VATOMIADD : CobaltInst<0x15,
+                           (outs VGPR32:$rd),
+                           (ins VGPR32:$addr, VGPR32:$val),
+                           "vatomiadd $rd, [$addr], $val"> {
+  bits<4> rd;
+  bits<4> addr;
+  bits<4> val;
+
+  let Inst{25-22} = rd;
+  let Inst{21-18} = addr;
+  let Inst{17-14} = val;
+  let Inst{13} = 1;
+  let Inst{12} = 1;
+  let mayLoad = 1;
+  let mayStore = 1;
+  let hasSideEffects = 1;
+}
+
+def VATOMIADDS : CobaltInst<0x15,
+                            (outs VGPR32:$rd),
+                            (ins VGPR32:$addr, VGPR32:$val),
+                            "vatomiadds $rd, [$addr], $val"> {
+  bits<4> rd;
+  bits<4> addr;
+  bits<4> val;
+
+  let Inst{25-22} = rd;
+  let Inst{21-18} = addr;
+  let Inst{17-14} = val;
+  let mayLoad = 1;
+  let mayStore = 1;
+  let hasSideEffects = 1;
+}
+
 def VBR : CobaltInst<0x08,
                      (outs),
                      (ins i32imm:$imm),

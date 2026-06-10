@@ -159,6 +159,19 @@ void CobaltDAGToDAGISel::Select(SDNode *N) {
     }
     break;
   }
+  case ISD::ATOMIC_LOAD_ADD: {
+    auto *Atomic = cast<AtomicSDNode>(N);
+    if (Atomic->getMemoryVT() != MVT::i32)
+      break;
+
+    const unsigned Opc = Atomic->getAddressSpace() == WorkgroupAddressSpace
+                             ? Cobalt::VATOMIADDS
+                             : Cobalt::VATOMIADD;
+    SDValue Ops[] = {N->getOperand(1), N->getOperand(2), N->getOperand(0)};
+    CurDAG->SelectNodeTo(N, Opc, CurDAG->getVTList(MVT::i32, MVT::Other),
+                         Ops);
+    return;
+  }
   case ISD::ConstantFP: {
     auto *CFP = cast<ConstantFPSDNode>(N);
     if (N->getValueType(0) != MVT::f32)
