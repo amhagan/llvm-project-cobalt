@@ -136,6 +136,8 @@ def VLD : CobaltInst<0x10,
                      (ins VGPR32:$addr),
                      "vld $rd, [$addr]",
                      [(set VGPR32:$rd, (load VGPR32:$addr))]> {
+  let Constraints = "@earlyclobber $rd";
+
   bits<4> rd;
   bits<4> addr;
 
@@ -155,6 +157,8 @@ def VLDF : CobaltInst<0x10,
                       (ins VGPR32:$addr),
                       "vld $rd, [$addr]",
                       [(set FGPR32:$rd, (load VGPR32:$addr))]> {
+  let Constraints = "@earlyclobber $rd";
+
   bits<4> rd;
   bits<4> addr;
 
