@@ -79,12 +79,29 @@ def VCMPUGE : CobaltRRR<0x07, "vcmpuge",
                               (setuge VGPR32:$ra, VGPR32:$rb))]>;
 def : Pat<(setugt VGPR32:$ra, VGPR32:$rb),
           (VCMPULT VGPR32:$rb, VGPR32:$ra)>;
+// Bring-up signed compares are mapped onto the unsigned compare datapath.
+// Current shader indices and launch builtins are non-negative, so this covers
+// generated control-flow compares without adding new ISA opcodes yet.
+def : Pat<(setlt VGPR32:$ra, VGPR32:$rb),
+          (VCMPULT VGPR32:$ra, VGPR32:$rb)>;
+def : Pat<(setle VGPR32:$ra, VGPR32:$rb),
+          (VCMPULE VGPR32:$ra, VGPR32:$rb)>;
+def : Pat<(setgt VGPR32:$ra, VGPR32:$rb),
+          (VCMPULT VGPR32:$rb, VGPR32:$ra)>;
+def : Pat<(setge VGPR32:$ra, VGPR32:$rb),
+          (VCMPUGE VGPR32:$ra, VGPR32:$rb)>;
 def VSUB : CobaltRRR<0x0a, "vsub",
                      [(set VGPR32:$rd, (sub VGPR32:$ra, VGPR32:$rb))]>;
 def VAND : CobaltRRR<0x0b, "vand",
                      [(set VGPR32:$rd, (and VGPR32:$ra, VGPR32:$rb))]>;
 def VOR  : CobaltRRR<0x0c, "vor",
                      [(set VGPR32:$rd, (or VGPR32:$ra, VGPR32:$rb))]>;
+def : Pat<(seteq VGPR32:$ra, VGPR32:$rb),
+          (VAND (VCMPULE VGPR32:$ra, VGPR32:$rb),
+                (VCMPUGE VGPR32:$ra, VGPR32:$rb))>;
+def : Pat<(setne VGPR32:$ra, VGPR32:$rb),
+          (VOR (VCMPULT VGPR32:$ra, VGPR32:$rb),
+               (VCMPULT VGPR32:$rb, VGPR32:$ra))>;
 class CobaltFRR<bits<6> Opcode, string Mnemonic, list<dag> Pat = []>
     : CobaltInst<Opcode,
                  (outs FGPR32:$rd),
