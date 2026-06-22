@@ -11,6 +11,7 @@
 #include "MCTargetDesc/CobaltMCTargetDesc.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/IR/Function.h"
 #include "llvm/IR/Type.h"
 #include "llvm/Support/ErrorHandling.h"
 
@@ -21,6 +22,18 @@ static const MCPhysReg ArgRegs[] = {
     Cobalt::R5,  Cobalt::R6,  Cobalt::R7,  Cobalt::R8,  Cobalt::R9,
     Cobalt::R10, Cobalt::R11, Cobalt::R12, Cobalt::R13,
 };
+
+static bool IsLaunchSgprSlot(unsigned AbiSlot) {
+  switch (AbiSlot) {
+  case 0: // gid_linear wave base
+  case 1: // gid_x wave base
+  case 4: // array_len16_per_workitem
+  case 5: // dispatch_grid_z
+    return true;
+  default:
+    return false;
+  }
+}
 
 CobaltTargetLowering::CobaltTargetLowering(const TargetMachine &TM,
                                            const CobaltSubtarget &STI)
@@ -56,6 +69,8 @@ SDValue CobaltTargetLowering::LowerFormalArguments(
   MachineFunction &MF = DAG.getMachineFunction();
   MachineRegisterInfo &MRI = MF.getRegInfo();
   unsigned ScalarArg = 0;
+  const bool UseLaunchSgprAbi =
+      MF.getFunction().hasFnAttribute("cobalt-launch-sgpr-abi");
 
   for (unsigned I = 0, E = Ins.size(); I != E; ++I) {
     if (Ins[I].VT != MVT::i32)
@@ -71,11 +86,29 @@ SDValue CobaltTargetLowering::LowerFormalArguments(
       continue;
     }
 
-    if (ScalarArg >= std::size(ArgRegs))
+    const unsigned AbiSlot = ScalarArg++;
+    if (AbiSlot >= std::size(ArgRegs))
       report_fatal_error("Cobalt supports at most fourteen scalar arguments");
 
+    if (UseLaunchSgprAbi && IsLaunchSgprSlot(AbiSlot)) {
+      SDValue SgprValue = SDValue(
+          DAG.getMachineNode(Cobalt::VSPLATSGPR, DL, MVT::i32,
+                             DAG.getTargetConstant(AbiSlot, DL, MVT::i32)),
+          0);
+
+      if (AbiSlot == 0 || AbiSlot == 1) {
+        Register LaneVReg = MRI.createVirtualRegister(&Cobalt::VGPR32RegClass);
+        MRI.addLiveIn(Cobalt::R14, LaneVReg);
+        SDValue Lane = DAG.getCopyFromReg(Chain, DL, LaneVReg, MVT::i32);
+        InVals.push_back(DAG.getNode(ISD::ADD, DL, MVT::i32, SgprValue, Lane));
+      } else {
+        InVals.push_back(SgprValue);
+      }
+      continue;
+    }
+
     Register VReg = MRI.createVirtualRegister(&Cobalt::VGPR32RegClass);
-    MRI.addLiveIn(ArgRegs[ScalarArg++], VReg);
+    MRI.addLiveIn(ArgRegs[AbiSlot], VReg);
     InVals.push_back(DAG.getCopyFromReg(Chain, DL, VReg, MVT::i32));
   }
 

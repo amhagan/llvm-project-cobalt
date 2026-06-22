@@ -121,6 +121,19 @@ def VFADD : CobaltFRR<0x0d, "vfadd",
                       [(set FGPR32:$rd, (fadd FGPR32:$ra, FGPR32:$rb))]>;
 def VFMUL : CobaltFRR<0x0e, "vfmul",
                       [(set FGPR32:$rd, (fmul FGPR32:$ra, FGPR32:$rb))]>;
+def VSPLATSGPR : CobaltInst<0x16,
+                            (outs VGPR32:$rd),
+                            (ins i32imm:$sgpr),
+                            "vsplatsgpr $rd, $sgpr"> {
+  bits<4> rd;
+  bits<16> sgpr;
+
+  // Broadcast the current waveslot's scalar launch/user-data register into a
+  // VGPR for existing vector-only datapaths.
+  let Inst{25-22} = rd;
+  let Inst{15-0} = sgpr;
+  let hasSideEffects = 1;
+}
 def VMOVHI : CobaltInst<0x0f,
                         (outs VGPR32:$rd),
                         (ins VGPR32:$ra, i32imm:$imm),
