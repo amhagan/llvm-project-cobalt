@@ -11,6 +11,7 @@
 #include "MCTargetDesc/CobaltMCTargetDesc.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/CodeGen/SelectionDAGNodes.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Type.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -33,6 +34,29 @@ static bool IsLaunchSgprSlot(unsigned AbiSlot) {
   default:
     return false;
   }
+}
+
+static bool getVSplatSgprIndex(SDValue Value, unsigned &Sgpr) {
+  if (!Value.isMachineOpcode() ||
+      Value.getMachineOpcode() != Cobalt::VSPLATSGPR)
+    return false;
+
+  auto *SgprNode = dyn_cast<ConstantSDNode>(Value.getOperand(0));
+  if (!SgprNode)
+    return false;
+
+  Sgpr = static_cast<unsigned>(SgprNode->getZExtValue());
+  return true;
+}
+
+static SDValue makeSgprOperandALU(unsigned MachineOpcode, SDValue Vector,
+                                  unsigned Sgpr, SDNode *N,
+                                  SelectionDAG &DAG) {
+  const SDLoc DL(N);
+  return SDValue(
+      DAG.getMachineNode(MachineOpcode, DL, MVT::i32, Vector,
+                         DAG.getTargetConstant(Sgpr, DL, MVT::i32)),
+      0);
 }
 
 CobaltTargetLowering::CobaltTargetLowering(const TargetMachine &TM,
@@ -58,6 +82,11 @@ CobaltTargetLowering::CobaltTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::ATOMIC_FENCE, MVT::Other, Legal);
   setOperationAction(ISD::STACKSAVE, MVT::Other, Expand);
   setOperationAction(ISD::STACKRESTORE, MVT::Other, Expand);
+
+  setTargetDAGCombine(ISD::ADD);
+  setTargetDAGCombine(ISD::SUB);
+  setTargetDAGCombine(ISD::AND);
+  setTargetDAGCombine(ISD::OR);
 }
 
 SDValue CobaltTargetLowering::LowerFormalArguments(
@@ -91,17 +120,19 @@ SDValue CobaltTargetLowering::LowerFormalArguments(
       report_fatal_error("Cobalt supports at most fourteen scalar arguments");
 
     if (UseLaunchSgprAbi && IsLaunchSgprSlot(AbiSlot)) {
-      SDValue SgprValue = SDValue(
-          DAG.getMachineNode(Cobalt::VSPLATSGPR, DL, MVT::i32,
-                             DAG.getTargetConstant(AbiSlot, DL, MVT::i32)),
-          0);
-
       if (AbiSlot == 0 || AbiSlot == 1) {
         Register LaneVReg = MRI.createVirtualRegister(&Cobalt::VGPR32RegClass);
         MRI.addLiveIn(Cobalt::R14, LaneVReg);
         SDValue Lane = DAG.getCopyFromReg(Chain, DL, LaneVReg, MVT::i32);
-        InVals.push_back(DAG.getNode(ISD::ADD, DL, MVT::i32, SgprValue, Lane));
+        InVals.push_back(SDValue(
+            DAG.getMachineNode(Cobalt::VADDSGPR, DL, MVT::i32, Lane,
+                               DAG.getTargetConstant(AbiSlot, DL, MVT::i32)),
+            0));
       } else {
+        SDValue SgprValue = SDValue(
+            DAG.getMachineNode(Cobalt::VSPLATSGPR, DL, MVT::i32,
+                               DAG.getTargetConstant(AbiSlot, DL, MVT::i32)),
+            0);
         InVals.push_back(SgprValue);
       }
       continue;
@@ -173,4 +204,44 @@ SDValue CobaltTargetLowering::LowerOperation(SDValue Op,
   default:
     report_fatal_error("unexpected Cobalt custom lowering opcode");
   }
+}
+
+SDValue CobaltTargetLowering::PerformDAGCombine(SDNode *N,
+                                                DAGCombinerInfo &DCI) const {
+  if (N->getValueType(0) != MVT::i32)
+    return SDValue();
+
+  SelectionDAG &DAG = DCI.DAG;
+  SDValue LHS = N->getOperand(0);
+  SDValue RHS = N->getOperand(1);
+  unsigned Sgpr = 0;
+
+  switch (N->getOpcode()) {
+  case ISD::ADD:
+    if (getVSplatSgprIndex(RHS, Sgpr))
+      return makeSgprOperandALU(Cobalt::VADDSGPR, LHS, Sgpr, N, DAG);
+    if (getVSplatSgprIndex(LHS, Sgpr))
+      return makeSgprOperandALU(Cobalt::VADDSGPR, RHS, Sgpr, N, DAG);
+    break;
+  case ISD::SUB:
+    if (getVSplatSgprIndex(RHS, Sgpr))
+      return makeSgprOperandALU(Cobalt::VSUBSGPR, LHS, Sgpr, N, DAG);
+    break;
+  case ISD::AND:
+    if (getVSplatSgprIndex(RHS, Sgpr))
+      return makeSgprOperandALU(Cobalt::VANDSGPR, LHS, Sgpr, N, DAG);
+    if (getVSplatSgprIndex(LHS, Sgpr))
+      return makeSgprOperandALU(Cobalt::VANDSGPR, RHS, Sgpr, N, DAG);
+    break;
+  case ISD::OR:
+    if (getVSplatSgprIndex(RHS, Sgpr))
+      return makeSgprOperandALU(Cobalt::VORSGPR, LHS, Sgpr, N, DAG);
+    if (getVSplatSgprIndex(LHS, Sgpr))
+      return makeSgprOperandALU(Cobalt::VORSGPR, RHS, Sgpr, N, DAG);
+    break;
+  default:
+    break;
+  }
+
+  return SDValue();
 }

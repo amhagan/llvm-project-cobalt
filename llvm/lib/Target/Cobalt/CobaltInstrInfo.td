@@ -134,6 +134,24 @@ def VSPLATSGPR : CobaltInst<0x16,
   let Inst{15-0} = sgpr;
   let hasSideEffects = 1;
 }
+class CobaltRRSgpr<bits<6> Opcode, string Mnemonic>
+    : CobaltInst<Opcode,
+                 (outs VGPR32:$rd),
+                 (ins VGPR32:$ra, i32imm:$sgpr),
+                 !strconcat(Mnemonic, " $rd, $ra, $sgpr")> {
+  bits<4> rd;
+  bits<4> ra;
+  bits<16> sgpr;
+
+  // rd[lane] = op(ra[lane], s[sgpr]) for the current resident waveslot.
+  let Inst{25-22} = rd;
+  let Inst{21-18} = ra;
+  let Inst{15-0} = sgpr;
+}
+def VADDSGPR : CobaltRRSgpr<0x17, "vaddsgpr">;
+def VSUBSGPR : CobaltRRSgpr<0x18, "vsubsgpr">;
+def VANDSGPR : CobaltRRSgpr<0x19, "vandsgpr">;
+def VORSGPR  : CobaltRRSgpr<0x1a, "vorsgpr">;
 def VMOVHI : CobaltInst<0x0f,
                         (outs VGPR32:$rd),
                         (ins VGPR32:$ra, i32imm:$imm),
