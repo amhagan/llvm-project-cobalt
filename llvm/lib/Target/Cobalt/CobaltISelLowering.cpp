@@ -9,12 +9,15 @@
 #include "CobaltISelLowering.h"
 #include "CobaltSubtarget.h"
 #include "MCTargetDesc/CobaltMCTargetDesc.h"
+#include "llvm/ADT/StringSwitch.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
+#include "llvm/IR/Argument.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Type.h"
 #include "llvm/Support/ErrorHandling.h"
+#include <optional>
 
 using namespace llvm;
 
@@ -34,6 +37,28 @@ static bool IsLaunchSgprSlot(unsigned AbiSlot) {
   default:
     return false;
   }
+}
+
+static std::optional<unsigned> GetNamedSgprSlot(StringRef Name) {
+  return StringSwitch<std::optional<unsigned>>(Name)
+      .Case("gid_linear", 0)
+      .Case("gid_x", 1)
+      .Case("array_len16", 4)
+      .Case("array_len16_per_workitem", 4)
+      .Case("dispatch_grid_z", 5)
+      .Case("desc0_base_lo", 8)
+      .Case("desc1_base_lo", 9)
+      .Case("desc2_base_lo", 10)
+      .Case("desc3_base_lo", 11)
+      .Case("desc0_size_bytes", 12)
+      .Case("desc1_size_bytes", 13)
+      .Case("desc2_size_bytes", 14)
+      .Case("desc3_size_bytes", 15)
+      .Default(std::nullopt);
+}
+
+static bool IsDescriptorUserDataSgprSlot(unsigned SgprSlot) {
+  return SgprSlot >= 8 && SgprSlot <= 15;
 }
 
 static bool getVSplatSgprIndex(SDValue Value, unsigned &Sgpr) {
@@ -115,9 +140,42 @@ SDValue CobaltTargetLowering::LowerFormalArguments(
       continue;
     }
 
-    const unsigned AbiSlot = ScalarArg++;
-    if (AbiSlot >= std::size(ArgRegs))
-      report_fatal_error("Cobalt supports at most fourteen scalar arguments");
+    std::optional<unsigned> NamedSgpr;
+    if (UseLaunchSgprAbi && I < MF.getFunction().arg_size()) {
+      const Argument *Arg = MF.getFunction().getArg(I);
+      NamedSgpr = GetNamedSgprSlot(Arg->getName());
+    }
+
+    // Dense launch ABI formals are still positional, even when lowered through
+    // direct SGPR operands. Descriptor/user-data pseudo-args are separate
+    // compiler-visible operands and do not consume r0..r13 launch positions.
+    const bool ConsumesScalarArg =
+        !NamedSgpr || !IsDescriptorUserDataSgprSlot(*NamedSgpr);
+    unsigned AbiSlot = 0;
+    if (ConsumesScalarArg) {
+      AbiSlot = ScalarArg++;
+      if (AbiSlot >= std::size(ArgRegs))
+        report_fatal_error("Cobalt supports at most fourteen scalar arguments");
+    }
+
+    if (NamedSgpr) {
+      const unsigned SgprSlot = *NamedSgpr;
+      if (SgprSlot == 0 || SgprSlot == 1) {
+        Register LaneVReg = MRI.createVirtualRegister(&Cobalt::VGPR32RegClass);
+        MRI.addLiveIn(Cobalt::R14, LaneVReg);
+        SDValue Lane = DAG.getCopyFromReg(Chain, DL, LaneVReg, MVT::i32);
+        InVals.push_back(SDValue(
+            DAG.getMachineNode(Cobalt::VADDSGPR, DL, MVT::i32, Lane,
+                               DAG.getTargetConstant(SgprSlot, DL, MVT::i32)),
+            0));
+      } else {
+        InVals.push_back(SDValue(
+            DAG.getMachineNode(Cobalt::VSPLATSGPR, DL, MVT::i32,
+                               DAG.getTargetConstant(SgprSlot, DL, MVT::i32)),
+            0));
+      }
+      continue;
+    }
 
     if (UseLaunchSgprAbi && IsLaunchSgprSlot(AbiSlot)) {
       if (AbiSlot == 0 || AbiSlot == 1) {
