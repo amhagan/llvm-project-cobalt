@@ -13,6 +13,7 @@
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
 #include "llvm/Support/Debug.h"
+#include <utility>
 
 using namespace llvm;
 
@@ -113,6 +114,46 @@ void CobaltDAGToDAGISel::Select(SDNode *N) {
 
   const SDLoc DL(N);
   switch (N->getOpcode()) {
+  case ISD::SETCC: {
+    if (N->getValueType(0) != MVT::i32)
+      break;
+
+    const auto CC = cast<CondCodeSDNode>(N->getOperand(2))->get();
+    unsigned CompareOpcode = 0;
+    bool SwapOperands = false;
+    switch (CC) {
+    case ISD::SETLT:
+      CompareOpcode = Cobalt::VCMPULT;
+      break;
+    case ISD::SETLE:
+      CompareOpcode = Cobalt::VCMPULE;
+      break;
+    case ISD::SETGT:
+      CompareOpcode = Cobalt::VCMPULT;
+      SwapOperands = true;
+      break;
+    case ISD::SETGE:
+      CompareOpcode = Cobalt::VCMPUGE;
+      break;
+    default:
+      break;
+    }
+    if (CompareOpcode == 0)
+      break;
+
+    SDValue SignBit = materializeI32(0x80000000u, DL);
+    SDValue LHS(CurDAG->getMachineNode(Cobalt::VXOR, DL, MVT::i32,
+                                       N->getOperand(0), SignBit),
+                0);
+    SDValue RHS(CurDAG->getMachineNode(Cobalt::VXOR, DL, MVT::i32,
+                                       N->getOperand(1), SignBit),
+                0);
+    if (SwapOperands)
+      std::swap(LHS, RHS);
+    ReplaceNode(N, CurDAG->getMachineNode(CompareOpcode, DL, MVT::i32,
+                                          LHS, RHS));
+    return;
+  }
   case CobaltISD::BRCOND:
     CurDAG->SelectNodeTo(N, Cobalt::BRCOND, MVT::Other, N->getOperand(1),
                          N->getOperand(2), N->getOperand(0));
@@ -170,6 +211,15 @@ void CobaltDAGToDAGISel::Select(SDNode *N) {
     SDValue Ops[] = {N->getOperand(1), N->getOperand(2), N->getOperand(0)};
     CurDAG->SelectNodeTo(N, Opc, CurDAG->getVTList(MVT::i32, MVT::Other),
                          Ops);
+    return;
+  }
+  case ISD::Constant: {
+    if (N->getValueType(0) != MVT::i32)
+      break;
+
+    const uint32_t Raw = static_cast<uint32_t>(
+        cast<ConstantSDNode>(N)->getAPIntValue().getZExtValue());
+    ReplaceNode(N, materializeI32(Raw, DL).getNode());
     return;
   }
   case ISD::ConstantFP: {
