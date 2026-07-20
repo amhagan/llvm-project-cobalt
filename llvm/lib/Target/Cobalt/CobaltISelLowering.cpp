@@ -98,12 +98,16 @@ CobaltTargetLowering::CobaltTargetLowering(const TargetMachine &TM,
   setPrefFunctionAlignment(Align(4));
 
   setOperationAction(ISD::SETCC, MVT::i32, Legal);
+  setOperationAction(ISD::SETCC, MVT::f32, Legal);
+  setOperationAction(ISD::SELECT, MVT::f32, Legal);
   setOperationAction(ISD::ConstantFP, MVT::f32, Legal);
   setOperationAction(ISD::FADD, MVT::f32, Legal);
   setOperationAction(ISD::FMUL, MVT::f32, Legal);
   setOperationAction(ISD::ATOMIC_LOAD_ADD, MVT::i32, Legal);
   setOperationAction(ISD::SELECT_CC, MVT::i32, Custom);
+  setOperationAction(ISD::SELECT_CC, MVT::f32, Custom);
   setOperationAction(ISD::BR_CC, MVT::i32, Custom);
+  setOperationAction(ISD::BR_CC, MVT::f32, Custom);
   setOperationAction(ISD::ATOMIC_FENCE, MVT::Other, Legal);
   setOperationAction(ISD::STACKSAVE, MVT::Other, Expand);
   setOperationAction(ISD::STACKRESTORE, MVT::Other, Expand);
@@ -112,6 +116,7 @@ CobaltTargetLowering::CobaltTargetLowering(const TargetMachine &TM,
   setTargetDAGCombine(ISD::SUB);
   setTargetDAGCombine(ISD::AND);
   setTargetDAGCombine(ISD::OR);
+  setTargetDAGCombine(ISD::SETCC);
 }
 
 SDValue CobaltTargetLowering::LowerFormalArguments(
@@ -255,6 +260,8 @@ SDValue CobaltTargetLowering::LowerOperation(SDValue Op,
                                 Op.getOperand(1), CC->get());
     SDValue TrueVal = Op.getOperand(2);
     SDValue FalseVal = Op.getOperand(3);
+    if (Op.getValueType() == MVT::f32)
+      return DAG.getNode(ISD::SELECT, DL, MVT::f32, Cond, TrueVal, FalseVal);
     SDValue Diff = DAG.getNode(ISD::SUB, DL, MVT::i32, TrueVal, FalseVal);
     SDValue Scaled = DAG.getNode(ISD::MUL, DL, MVT::i32, Cond, Diff);
     return DAG.getNode(ISD::ADD, DL, MVT::i32, FalseVal, Scaled);
@@ -296,6 +303,21 @@ SDValue CobaltTargetLowering::PerformDAGCombine(SDNode *N,
       return makeSgprOperandALU(Cobalt::VORSGPR, LHS, Sgpr, N, DAG);
     if (getVSplatSgprIndex(LHS, Sgpr))
       return makeSgprOperandALU(Cobalt::VORSGPR, RHS, Sgpr, N, DAG);
+    break;
+  case ISD::SETCC:
+    if (getVSplatSgprIndex(RHS, Sgpr)) {
+      const auto CC = cast<CondCodeSDNode>(N->getOperand(2))->get();
+      switch (CC) {
+      case ISD::SETULT:
+        return makeSgprOperandALU(Cobalt::VCMPULTSGPR, LHS, Sgpr, N, DAG);
+      case ISD::SETULE:
+        return makeSgprOperandALU(Cobalt::VCMPULESGPR, LHS, Sgpr, N, DAG);
+      case ISD::SETUGE:
+        return makeSgprOperandALU(Cobalt::VCMPUGESGPR, LHS, Sgpr, N, DAG);
+      default:
+        break;
+      }
+    }
     break;
   default:
     break;

@@ -121,6 +121,59 @@ def VFADD : CobaltFRR<0x0d, "vfadd",
                       [(set FGPR32:$rd, (fadd FGPR32:$ra, FGPR32:$rb))]>;
 def VFMUL : CobaltFRR<0x0e, "vfmul",
                       [(set FGPR32:$rd, (fmul FGPR32:$ra, FGPR32:$rb))]>;
+
+class CobaltFCmp<bits<6> Opcode, string Mnemonic, list<dag> Pat = []>
+    : CobaltInst<Opcode,
+                 (outs VGPR32:$rd),
+                 (ins FGPR32:$ra, FGPR32:$rb),
+                 !strconcat(Mnemonic, " $rd, $ra, $rb"),
+                 Pat> {
+  bits<4> rd;
+  bits<4> ra;
+  bits<4> rb;
+
+  let Inst{25-22} = rd;
+  let Inst{21-18} = ra;
+  let Inst{17-14} = rb;
+}
+
+def VFCMPEQ : CobaltFCmp<0x1b, "vfcmpeq",
+                         [(set VGPR32:$rd,
+                               (setoeq FGPR32:$ra, FGPR32:$rb))]>;
+def VFCMPNE : CobaltFCmp<0x1c, "vfcmpne",
+                         [(set VGPR32:$rd,
+                               (setune FGPR32:$ra, FGPR32:$rb))]>;
+def VFCMPLT : CobaltFCmp<0x1d, "vfcmplt",
+                         [(set VGPR32:$rd,
+                               (setolt FGPR32:$ra, FGPR32:$rb))]>;
+def VFCMPLE : CobaltFCmp<0x1e, "vfcmple",
+                         [(set VGPR32:$rd,
+                               (setole FGPR32:$ra, FGPR32:$rb))]>;
+def : Pat<(setogt FGPR32:$ra, FGPR32:$rb),
+          (VFCMPLT FGPR32:$rb, FGPR32:$ra)>;
+def : Pat<(setoge FGPR32:$ra, FGPR32:$rb),
+          (VFCMPLE FGPR32:$rb, FGPR32:$ra)>;
+
+def VSELECT : CobaltInst<0x1f,
+                         (outs FGPR32:$rd),
+                         (ins VGPR32:$condition, FGPR32:$true_value,
+                              FGPR32:$false_value),
+                         "vselect $rd, $condition, $true_value",
+                         [(set FGPR32:$rd,
+                               (select VGPR32:$condition,
+                                       FGPR32:$true_value,
+                                       FGPR32:$false_value))]> {
+  bits<4> rd;
+  bits<4> condition;
+  bits<4> true_value;
+
+  // Two-address form: rd supplies false_value before writeback.
+  let Constraints = "$rd = $false_value";
+  let Inst{25-22} = rd;
+  let Inst{21-18} = condition;
+  let Inst{17-14} = true_value;
+}
+
 def VSPLATSGPR : CobaltInst<0x16,
                             (outs VGPR32:$rd),
                             (ins i32imm:$sgpr),
@@ -152,6 +205,9 @@ def VADDSGPR : CobaltRRSgpr<0x17, "vaddsgpr">;
 def VSUBSGPR : CobaltRRSgpr<0x18, "vsubsgpr">;
 def VANDSGPR : CobaltRRSgpr<0x19, "vandsgpr">;
 def VORSGPR  : CobaltRRSgpr<0x1a, "vorsgpr">;
+def VCMPULTSGPR : CobaltRRSgpr<0x20, "vcmpultsgpr">;
+def VCMPULESGPR : CobaltRRSgpr<0x21, "vcmpulesgpr">;
+def VCMPUGESGPR : CobaltRRSgpr<0x22, "vcmpugesgpr">;
 def VMOVHI : CobaltInst<0x0f,
                         (outs VGPR32:$rd),
                         (ins VGPR32:$ra, i32imm:$imm),
