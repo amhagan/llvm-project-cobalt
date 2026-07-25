@@ -50,6 +50,10 @@ static std::optional<unsigned> GetNamedSgprSlot(StringRef Name) {
       .Case("desc1_base_lo", 9)
       .Case("desc2_base_lo", 10)
       .Case("desc3_base_lo", 11)
+      .Case("uniform_b0_word0", 8)
+      .Case("uniform_b1_word0", 9)
+      .Case("uniform_b2_word0", 10)
+      .Case("uniform_b3_word0", 11)
       .Case("desc0_size_bytes", 12)
       .Case("desc1_size_bytes", 13)
       .Case("desc2_size_bytes", 14)
@@ -57,7 +61,7 @@ static std::optional<unsigned> GetNamedSgprSlot(StringRef Name) {
       .Default(std::nullopt);
 }
 
-static bool IsDescriptorUserDataSgprSlot(unsigned SgprSlot) {
+static bool IsUserDataSgprSlot(unsigned SgprSlot) {
   return SgprSlot >= 8 && SgprSlot <= 15;
 }
 
@@ -152,10 +156,11 @@ SDValue CobaltTargetLowering::LowerFormalArguments(
     }
 
     // Dense launch ABI formals are still positional, even when lowered through
-    // direct SGPR operands. Descriptor/user-data pseudo-args are separate
-    // compiler-visible operands and do not consume r0..r13 launch positions.
+    // direct SGPR operands. Descriptor and uniform user-data pseudo-args are
+    // separate compiler-visible operands and do not consume r0..r13 launch
+    // positions.
     const bool ConsumesScalarArg =
-        !NamedSgpr || !IsDescriptorUserDataSgprSlot(*NamedSgpr);
+        !NamedSgpr || !IsUserDataSgprSlot(*NamedSgpr);
     unsigned AbiSlot = 0;
     if (ConsumesScalarArg) {
       AbiSlot = ScalarArg++;
