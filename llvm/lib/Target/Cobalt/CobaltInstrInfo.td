@@ -197,6 +197,18 @@ def VORSGPR  : CobaltRRSgpr<0x1a, "vorsgpr">;
 def VCMPULTSGPR : CobaltRRSgpr<0x20, "vcmpultsgpr">;
 def VCMPULESGPR : CobaltRRSgpr<0x21, "vcmpulesgpr">;
 def VCMPUGESGPR : CobaltRRSgpr<0x22, "vcmpugesgpr">;
+def VLSHRI : CobaltInst<0x23,
+                        (outs VGPR32:$rd),
+                        (ins VGPR32:$ra, i32imm:$imm),
+                        "vlshri $rd, $ra, $imm"> {
+  bits<4> rd;
+  bits<4> ra;
+  bits<5> imm;
+
+  let Inst{25-22} = rd;
+  let Inst{21-18} = ra;
+  let Inst{4-0} = imm;
+}
 def VMOVHI : CobaltInst<0x0f,
                         (outs VGPR32:$rd),
                         (ins VGPR32:$ra, i32imm:$imm),
@@ -226,13 +238,13 @@ def VMOVHIF : CobaltInst<0x0f,
 
 def VLD : CobaltInst<0x10,
                      (outs VGPR32:$rd),
-                     (ins VGPR32:$addr),
-                     "vld $rd, [$addr]",
-                     [(set VGPR32:$rd, (load VGPR32:$addr))]> {
+                     (ins VGPR32:$addr, i32imm:$binding),
+                     "vld $rd, [$addr], binding $binding"> {
   let Constraints = "@earlyclobber $rd";
 
   bits<4> rd;
   bits<4> addr;
+  bits<2> binding;
 
   let Inst{25-22} = rd;
   let Inst{21-18} = addr;
@@ -242,62 +254,61 @@ def VLD : CobaltInst<0x10,
   // modelled for real.
   let Inst{13} = 1;
   let Inst{12} = 1;
+  let Inst{1-0} = binding;
   let mayLoad = 1;
 }
 
 def VLDF : CobaltInst<0x10,
                       (outs FGPR32:$rd),
-                      (ins VGPR32:$addr),
-                      "vld $rd, [$addr]",
-                      [(set FGPR32:$rd, (load VGPR32:$addr))]> {
+                      (ins VGPR32:$addr, i32imm:$binding),
+                      "vld $rd, [$addr], binding $binding"> {
   let Constraints = "@earlyclobber $rd";
 
   bits<4> rd;
   bits<4> addr;
+  bits<2> binding;
 
   let Inst{25-22} = rd;
   let Inst{21-18} = addr;
   let Inst{17-14} = 15;
   let Inst{13} = 1;
   let Inst{12} = 1;
+  let Inst{1-0} = binding;
   let mayLoad = 1;
 }
 
 def VST : CobaltInst<0x11,
                      (outs),
-                     (ins VGPR32:$src, VGPR32:$addr),
-                     "vst $src, [$addr]",
-                     [(store VGPR32:$src, VGPR32:$addr)]> {
+                     (ins VGPR32:$src, VGPR32:$addr, i32imm:$binding),
+                     "vst $src, [$addr], binding $binding"> {
   bits<4> src;
   bits<4> addr;
+  bits<2> binding;
 
   let Inst{25-22} = src;
   let Inst{21-18} = addr;
   let Inst{17-14} = 15;
   let Inst{13} = 1;
   let Inst{12} = 1;
-  // Bring-up convention: generic LLVM stores target SSBO binding 1, while
-  // generic loads target SSBO binding 0. A real address-space/binding lowering
-  // pass should replace this fixed policy.
-  let Inst{0} = 1;
+  let Inst{1-0} = binding;
   let mayStore = 1;
   let hasSideEffects = 1;
 }
 
 def VSTF : CobaltInst<0x11,
                       (outs),
-                      (ins FGPR32:$src, VGPR32:$addr),
-                      "vst $src, [$addr]",
-                      [(store FGPR32:$src, VGPR32:$addr)]> {
+                      (ins FGPR32:$src, VGPR32:$addr, i32imm:$binding),
+                      "vst $src, [$addr], binding $binding"> {
   bits<4> src;
   bits<4> addr;
+  bits<2> binding;
 
   let Inst{25-22} = src;
   let Inst{21-18} = addr;
   let Inst{17-14} = 15;
   let Inst{13} = 1;
   let Inst{12} = 1;
-  let Inst{0} = 1;
+  let Inst{1-0} = binding;
   let mayStore = 1;
   let hasSideEffects = 1;
 }
@@ -346,17 +357,19 @@ def VBARRIER : CobaltInst<0x14,
 
 def VATOMIADD : CobaltInst<0x15,
                            (outs VGPR32:$rd),
-                           (ins VGPR32:$addr, VGPR32:$val),
-                           "vatomiadd $rd, [$addr], $val"> {
+                           (ins VGPR32:$addr, VGPR32:$val, i32imm:$binding),
+                           "vatomiadd $rd, [$addr], $val, binding $binding"> {
   bits<4> rd;
   bits<4> addr;
   bits<4> val;
+  bits<2> binding;
 
   let Inst{25-22} = rd;
   let Inst{21-18} = addr;
   let Inst{17-14} = val;
   let Inst{13} = 1;
   let Inst{12} = 1;
+  let Inst{1-0} = binding;
   let mayLoad = 1;
   let mayStore = 1;
   let hasSideEffects = 1;

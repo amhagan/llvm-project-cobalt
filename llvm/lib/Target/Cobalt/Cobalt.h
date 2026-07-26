@@ -18,6 +18,12 @@ class CobaltTargetMachine;
 class FunctionPass;
 class PassRegistry;
 
+namespace CobaltAS {
+constexpr unsigned Workgroup = 3;
+constexpr unsigned DescriptorBase = 8;
+constexpr unsigned DescriptorCount = 4;
+} // namespace CobaltAS
+
 FunctionPass *createCobaltISelDag(CobaltTargetMachine &TM,
                                   CodeGenOptLevel OptLevel);
 

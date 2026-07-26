@@ -47,3 +47,11 @@ define i32 @xor2(i32 %a, i32 %b) {
   %v = xor i32 %a, %b
   ret i32 %v
 }
+
+define i32 @lshr3(i32 %a) {
+; CHECK-LABEL: lshr3:
+; CHECK:       vlshri r0, r0, 3
+; CHECK:       halt
+  %v = lshr i32 %a, 3
+  ret i32 %v
+}

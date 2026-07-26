@@ -13,6 +13,7 @@
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
 #include "llvm/Support/Debug.h"
+#include <optional>
 #include <utility>
 
 using namespace llvm;
@@ -21,7 +22,20 @@ using namespace llvm;
 #define PASS_NAME "Cobalt DAG->DAG Instruction Selection"
 
 namespace {
-constexpr unsigned WorkgroupAddressSpace = 3;
+
+static std::optional<unsigned> getDescriptorBinding(unsigned AddressSpace,
+                                                    bool IsStore) {
+  if (AddressSpace >= CobaltAS::DescriptorBase &&
+      AddressSpace < CobaltAS::DescriptorBase + CobaltAS::DescriptorCount)
+    return AddressSpace - CobaltAS::DescriptorBase;
+
+  // Preserve the original direct-LLVM smoke convention. Vulkan SPIR-V uses
+  // explicit descriptor address spaces and does not rely on this fallback.
+  if (AddressSpace == 0)
+    return IsStore ? 1u : 0u;
+
+  return std::nullopt;
+}
 
 static uint64_t getFrameObjectByteOffset(MachineFunction &MF, int FrameIndex) {
   MachineFrameInfo &MFI = MF.getFrameInfo();
@@ -160,32 +174,60 @@ void CobaltDAGToDAGISel::Select(SDNode *N) {
     return;
   case ISD::LOAD: {
     auto *Ld = cast<LoadSDNode>(N);
-    if (Ld->getAddressSpace() == WorkgroupAddressSpace &&
+    if (Ld->getAddressSpace() == CobaltAS::Workgroup &&
         Ld->getMemoryVT() == MVT::i32) {
       CurDAG->SelectNodeTo(N, Cobalt::VLDS, MVT::i32, MVT::Other,
                            N->getOperand(1), N->getOperand(0));
+      return;
+    }
+    const std::optional<unsigned> Binding =
+        getDescriptorBinding(Ld->getAddressSpace(), false);
+    if (Binding && (Ld->getMemoryVT() == MVT::i32 ||
+                    Ld->getMemoryVT() == MVT::f32)) {
+      const unsigned Opc =
+          Ld->getMemoryVT() == MVT::f32 ? Cobalt::VLDF : Cobalt::VLD;
+      SDValue Ops[] = {
+          N->getOperand(1),
+          CurDAG->getTargetConstant(*Binding, DL, MVT::i32),
+          N->getOperand(0)};
+      CurDAG->SelectNodeTo(N, Opc, Ld->getMemoryVT().getSimpleVT(),
+                           MVT::Other, Ops);
       return;
     }
     break;
   }
   case ISD::STORE: {
     auto *St = cast<StoreSDNode>(N);
-    if (St->getAddressSpace() == WorkgroupAddressSpace &&
+    if (St->getAddressSpace() == CobaltAS::Workgroup &&
         St->getMemoryVT() == MVT::i32) {
       CurDAG->SelectNodeTo(N, Cobalt::VSTS, MVT::Other, N->getOperand(1),
                            N->getOperand(2), N->getOperand(0));
       return;
     }
+    const std::optional<unsigned> Binding =
+        getDescriptorBinding(St->getAddressSpace(), true);
+    if (!Binding)
+      break;
+
     if (St->getMemoryVT() == MVT::f32) {
       auto *CFP = dyn_cast<ConstantFPSDNode>(N->getOperand(1));
       if (CFP) {
         const APInt Bits = CFP->getValueAPF().bitcastToAPInt();
         const uint32_t Raw = static_cast<uint32_t>(Bits.getZExtValue());
         SDValue Src = materializeF32(Raw, DL);
-        CurDAG->SelectNodeTo(N, Cobalt::VSTF, MVT::Other, Src,
-                             N->getOperand(2), N->getOperand(0));
+        SDValue Ops[] = {
+            Src, N->getOperand(2),
+            CurDAG->getTargetConstant(*Binding, DL, MVT::i32),
+            N->getOperand(0)};
+        CurDAG->SelectNodeTo(N, Cobalt::VSTF, MVT::Other, Ops);
         return;
       }
+      SDValue Ops[] = {
+          N->getOperand(1), N->getOperand(2),
+          CurDAG->getTargetConstant(*Binding, DL, MVT::i32),
+          N->getOperand(0)};
+      CurDAG->SelectNodeTo(N, Cobalt::VSTF, MVT::Other, Ops);
+      return;
     }
     if (St->getMemoryVT() == MVT::i32) {
       auto *C = dyn_cast<ConstantSDNode>(N->getOperand(1));
@@ -193,10 +235,19 @@ void CobaltDAGToDAGISel::Select(SDNode *N) {
         const uint32_t Raw =
             static_cast<uint32_t>(C->getAPIntValue().getZExtValue());
         SDValue Src = materializeI32(Raw, DL);
-        CurDAG->SelectNodeTo(N, Cobalt::VST, MVT::Other, Src,
-                             N->getOperand(2), N->getOperand(0));
+        SDValue Ops[] = {
+            Src, N->getOperand(2),
+            CurDAG->getTargetConstant(*Binding, DL, MVT::i32),
+            N->getOperand(0)};
+        CurDAG->SelectNodeTo(N, Cobalt::VST, MVT::Other, Ops);
         return;
       }
+      SDValue Ops[] = {
+          N->getOperand(1), N->getOperand(2),
+          CurDAG->getTargetConstant(*Binding, DL, MVT::i32),
+          N->getOperand(0)};
+      CurDAG->SelectNodeTo(N, Cobalt::VST, MVT::Other, Ops);
+      return;
     }
     break;
   }
@@ -205,10 +256,25 @@ void CobaltDAGToDAGISel::Select(SDNode *N) {
     if (Atomic->getMemoryVT() != MVT::i32)
       break;
 
-    const unsigned Opc = Atomic->getAddressSpace() == WorkgroupAddressSpace
+    const bool IsWorkgroup =
+        Atomic->getAddressSpace() == CobaltAS::Workgroup;
+    const unsigned Opc = IsWorkgroup
                              ? Cobalt::VATOMIADDS
                              : Cobalt::VATOMIADD;
-    SDValue Ops[] = {N->getOperand(1), N->getOperand(2), N->getOperand(0)};
+    if (IsWorkgroup) {
+      SDValue Ops[] = {N->getOperand(1), N->getOperand(2), N->getOperand(0)};
+      CurDAG->SelectNodeTo(N, Opc, CurDAG->getVTList(MVT::i32, MVT::Other),
+                           Ops);
+      return;
+    }
+
+    const std::optional<unsigned> Binding =
+        getDescriptorBinding(Atomic->getAddressSpace(), false);
+    if (!Binding)
+      break;
+    SDValue Ops[] = {
+        N->getOperand(1), N->getOperand(2),
+        CurDAG->getTargetConstant(*Binding, DL, MVT::i32), N->getOperand(0)};
     CurDAG->SelectNodeTo(N, Opc, CurDAG->getVTList(MVT::i32, MVT::Other),
                          Ops);
     return;
@@ -245,7 +311,7 @@ void CobaltDAGToDAGISel::Select(SDNode *N) {
     return;
   }
   case ISD::SHL: {
-    // CobaltISA 1.0 has no shift opcode. Select constant left shifts directly
+    // CobaltISA has no left-shift opcode. Select constant left shifts directly
     // as VMOVI + VMUL here instead of lowering them to ISD::MUL earlier:
     // SelectionDAG combines multiply-by-power-of-two back into SHL.
     auto *Amount = dyn_cast<ConstantSDNode>(N->getOperand(1));
@@ -267,6 +333,27 @@ void CobaltDAGToDAGISel::Select(SDNode *N) {
     }
     report_fatal_error(
         "Cobalt only supports constant i32 left shifts by 0..14 bits");
+  }
+  case ISD::SRL: {
+    auto *Amount = dyn_cast<ConstantSDNode>(N->getOperand(1));
+    if (!Amount)
+      report_fatal_error(
+          "Cobalt only supports constant i32 logical right shifts");
+
+    const uint64_t Shift = Amount->getZExtValue();
+    if (Shift == 0) {
+      ReplaceNode(N, N->getOperand(0).getNode());
+      return;
+    }
+    if (Shift <= 31) {
+      SDValue ShiftImm =
+          CurDAG->getTargetConstant(static_cast<unsigned>(Shift), DL, MVT::i32);
+      CurDAG->SelectNodeTo(N, Cobalt::VLSHRI, MVT::i32, N->getOperand(0),
+                           ShiftImm);
+      return;
+    }
+    report_fatal_error(
+        "Cobalt only supports constant i32 logical right shifts by 0..31 bits");
   }
   default:
     break;
