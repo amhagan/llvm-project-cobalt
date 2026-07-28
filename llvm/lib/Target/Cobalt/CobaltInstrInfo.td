@@ -197,6 +197,44 @@ def VORSGPR  : CobaltRRSgpr<0x1a, "vorsgpr">;
 def VCMPULTSGPR : CobaltRRSgpr<0x20, "vcmpultsgpr">;
 def VCMPULESGPR : CobaltRRSgpr<0x21, "vcmpulesgpr">;
 def VCMPUGESGPR : CobaltRRSgpr<0x22, "vcmpugesgpr">;
+def VXORSGPR : CobaltRRSgpr<0x24, "vxorsgpr">;
+def VMULSGPR : CobaltRRSgpr<0x25, "vmulsgpr">;
+
+class CobaltFRSgpr<bits<6> Opcode, string Mnemonic>
+    : CobaltInst<Opcode,
+                 (outs FGPR32:$rd),
+                 (ins FGPR32:$ra, i32imm:$sgpr),
+                 !strconcat(Mnemonic, " $rd, $ra, $sgpr")> {
+  bits<4> rd;
+  bits<4> ra;
+  bits<16> sgpr;
+
+  // The SGPR contains raw IEEE-754 binary32 bits; no scalar conversion occurs.
+  let Inst{25-22} = rd;
+  let Inst{21-18} = ra;
+  let Inst{15-0} = sgpr;
+}
+
+class CobaltFCmpSgpr<bits<6> Opcode, string Mnemonic>
+    : CobaltInst<Opcode,
+                 (outs VGPR32:$rd),
+                 (ins FGPR32:$ra, i32imm:$sgpr),
+                 !strconcat(Mnemonic, " $rd, $ra, $sgpr")> {
+  bits<4> rd;
+  bits<4> ra;
+  bits<16> sgpr;
+
+  let Inst{25-22} = rd;
+  let Inst{21-18} = ra;
+  let Inst{15-0} = sgpr;
+}
+
+def VFADDSGPR : CobaltFRSgpr<0x26, "vfaddsgpr">;
+def VFMULSGPR : CobaltFRSgpr<0x27, "vfmulsgpr">;
+def VFCMPEQSGPR : CobaltFCmpSgpr<0x28, "vfcmpeqsgpr">;
+def VFCMPNESGPR : CobaltFCmpSgpr<0x29, "vfcmpnesgpr">;
+def VFCMPLTSGPR : CobaltFCmpSgpr<0x2a, "vfcmpltsgpr">;
+def VFCMPLESGPR : CobaltFCmpSgpr<0x2b, "vfcmplesgpr">;
 def VLSHRI : CobaltInst<0x23,
                         (outs VGPR32:$rd),
                         (ins VGPR32:$ra, i32imm:$imm),
