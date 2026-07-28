@@ -29,6 +29,10 @@ public:
   explicit CobaltTargetLowering(const TargetMachine &TM,
                                 const CobaltSubtarget &STI);
 
+  // Cobalt has no indirect-branch instruction or jump-table relocation model
+  // yet. Keep switch lowering on ordinary conditional/direct branches.
+  bool areJTsAllowed(const Function *Fn) const override { return false; }
+
   SDValue LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv,
                                bool IsVarArg,
                                const SmallVectorImpl<ISD::InputArg> &Ins,
