@@ -9,11 +9,13 @@
 #include "CobaltISelLowering.h"
 #include "CobaltSubtarget.h"
 #include "MCTargetDesc/CobaltMCTargetDesc.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
 #include "llvm/IR/Argument.h"
+#include "llvm/IR/Attributes.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Type.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -39,26 +41,87 @@ static bool IsLaunchSgprSlot(unsigned AbiSlot) {
   }
 }
 
-static std::optional<unsigned> GetNamedSgprSlot(StringRef Name) {
+static std::optional<unsigned> GetNamedLaunchSgprSlot(StringRef Name) {
   return StringSwitch<std::optional<unsigned>>(Name)
       .Case("gid_linear", 0)
       .Case("gid_x", 1)
       .Case("array_len16", 4)
       .Case("array_len16_per_workitem", 4)
       .Case("dispatch_grid_z", 5)
-      .Case("desc0_base_lo", 8)
-      .Case("desc1_base_lo", 9)
-      .Case("desc2_base_lo", 10)
-      .Case("desc3_base_lo", 11)
+      .Default(std::nullopt);
+}
+
+static std::optional<unsigned> GetUserDataSource(StringRef Name) {
+  return StringSwitch<std::optional<unsigned>>(Name)
+      .Case("desc0_base_lo", 0)
+      .Case("desc1_base_lo", 1)
+      .Case("desc2_base_lo", 2)
+      .Case("desc3_base_lo", 3)
+      .Case("desc0_size_bytes", 4)
+      .Case("desc1_size_bytes", 5)
+      .Case("desc2_size_bytes", 6)
+      .Case("desc3_size_bytes", 7)
       .Case("uniform_b0_word0", 8)
       .Case("uniform_b1_word0", 9)
       .Case("uniform_b2_word0", 10)
       .Case("uniform_b3_word0", 11)
-      .Case("desc0_size_bytes", 12)
-      .Case("desc1_size_bytes", 13)
-      .Case("desc2_size_bytes", 14)
-      .Case("desc3_size_bytes", 15)
+      .Case("uniform_b0_word1", 12)
+      .Case("uniform_b1_word1", 13)
+      .Case("uniform_b2_word1", 14)
+      .Case("uniform_b3_word1", 15)
+      .Case("uniform_b0_word2", 16)
+      .Case("uniform_b1_word2", 17)
+      .Case("uniform_b2_word2", 18)
+      .Case("uniform_b3_word2", 19)
+      .Case("uniform_b0_word3", 20)
+      .Case("uniform_b1_word3", 21)
+      .Case("uniform_b2_word3", 22)
+      .Case("uniform_b3_word3", 23)
       .Default(std::nullopt);
+}
+
+static std::optional<unsigned>
+GetPackedUserDataSgprSlot(const Function &F, StringRef Name) {
+  std::optional<unsigned> TargetSource = GetUserDataSource(Name);
+  if (!TargetSource)
+    return std::nullopt;
+
+  Attribute MapAttr = F.getFnAttribute("cobalt-user-data-map");
+  if (MapAttr.isValid()) {
+    SmallVector<StringRef, 8> Sources;
+    MapAttr.getValueAsString().split(Sources, ',', -1, false);
+    if (Sources.size() > 8)
+      report_fatal_error("Cobalt user-data map exceeds s8..s15");
+    for (unsigned I = 0; I < Sources.size(); ++I) {
+      unsigned Source = 0;
+      if (Sources[I].getAsInteger(0, Source) || Source > 23)
+        report_fatal_error("invalid Cobalt user-data source map");
+      if (Source == *TargetSource)
+        return 8u + I;
+    }
+    return std::nullopt;
+  }
+
+  // Standalone llc input has no pipeline metadata. Recreate the canonical
+  // descriptor-first packing from the live named formals.
+  unsigned PackedIndex = 0;
+  for (unsigned Source = 0; Source <= 23; ++Source) {
+    const Argument *SourceArg = nullptr;
+    for (const Argument &Arg : F.args()) {
+      if (GetUserDataSource(Arg.getName()) == Source) {
+        SourceArg = &Arg;
+        break;
+      }
+    }
+    if (!SourceArg || SourceArg->use_empty())
+      continue;
+    if (PackedIndex >= 8)
+      report_fatal_error("Cobalt user-data inputs exceed s8..s15");
+    if (Source == *TargetSource)
+      return 8u + PackedIndex;
+    ++PackedIndex;
+  }
+  return std::nullopt;
 }
 
 static bool IsUserDataSgprSlot(unsigned SgprSlot) {
@@ -136,9 +199,6 @@ SDValue CobaltTargetLowering::LowerFormalArguments(
       MF.getFunction().hasFnAttribute("cobalt-launch-sgpr-abi");
 
   for (unsigned I = 0, E = Ins.size(); I != E; ++I) {
-    if (Ins[I].VT != MVT::i32)
-      report_fatal_error("Cobalt only supports i32 smoke-test arguments");
-
     // Cobalt compute kernels receive buffer pointers as symbolic binding
     // handles. The SIMD hardware gets real buffer bases from the descriptor
     // table selected by VLD/VST imm bits, while scalar launch coordinates are
@@ -150,9 +210,25 @@ SDValue CobaltTargetLowering::LowerFormalArguments(
     }
 
     std::optional<unsigned> NamedSgpr;
+    bool IsUserDataArg = false;
     if (UseLaunchSgprAbi && I < MF.getFunction().arg_size()) {
       const Argument *Arg = MF.getFunction().getArg(I);
-      NamedSgpr = GetNamedSgprSlot(Arg->getName());
+      NamedSgpr = GetNamedLaunchSgprSlot(Arg->getName());
+      IsUserDataArg = GetUserDataSource(Arg->getName()).has_value();
+      if (!NamedSgpr && IsUserDataArg)
+        NamedSgpr =
+            GetPackedUserDataSgprSlot(MF.getFunction(), Arg->getName());
+    }
+    if (Ins[I].VT != MVT::i32 &&
+        !(Ins[I].VT == MVT::f32 && IsUserDataArg))
+      report_fatal_error(
+          "Cobalt only supports i32 arguments and packed f32 user data");
+
+    // Unused user-data formals remain in normalized LLVM signatures but do
+    // not occupy either packed SGPRs or positional VGPR argument slots.
+    if (IsUserDataArg && !NamedSgpr) {
+      InVals.push_back(DAG.getConstant(0, DL, MVT::i32));
+      continue;
     }
 
     // Dense launch ABI formals are still positional, even when lowered through
@@ -180,7 +256,7 @@ SDValue CobaltTargetLowering::LowerFormalArguments(
             0));
       } else {
         InVals.push_back(SDValue(
-            DAG.getMachineNode(Cobalt::VSPLATSGPR, DL, MVT::i32,
+            DAG.getMachineNode(Cobalt::VSPLATSGPR, DL, Ins[I].VT,
                                DAG.getTargetConstant(SgprSlot, DL, MVT::i32)),
             0));
       }
