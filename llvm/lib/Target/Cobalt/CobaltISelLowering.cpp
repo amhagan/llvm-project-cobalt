@@ -45,9 +45,12 @@ static std::optional<unsigned> GetNamedLaunchSgprSlot(StringRef Name) {
   return StringSwitch<std::optional<unsigned>>(Name)
       .Case("gid_linear", 0)
       .Case("gid_x", 1)
+      .Case("num_workgroups_x", 2)
+      .Case("num_workgroups_y", 3)
       .Case("array_len16", 4)
       .Case("array_len16_per_workitem", 4)
       .Case("dispatch_grid_z", 5)
+      .Case("num_workgroups_z", 6)
       .Default(std::nullopt);
 }
 
@@ -77,6 +80,14 @@ static std::optional<unsigned> GetUserDataSource(StringRef Name) {
       .Case("uniform_b1_word3", 21)
       .Case("uniform_b2_word3", 22)
       .Case("uniform_b3_word3", 23)
+      .Case("push_constant_word0", 24)
+      .Case("push_constant_word1", 25)
+      .Case("push_constant_word2", 26)
+      .Case("push_constant_word3", 27)
+      .Case("push_constant_word4", 28)
+      .Case("push_constant_word5", 29)
+      .Case("push_constant_word6", 30)
+      .Case("push_constant_word7", 31)
       .Default(std::nullopt);
 }
 
@@ -94,7 +105,7 @@ GetPackedUserDataSgprSlot(const Function &F, StringRef Name) {
       report_fatal_error("Cobalt user-data map exceeds s8..s15");
     for (unsigned I = 0; I < Sources.size(); ++I) {
       unsigned Source = 0;
-      if (Sources[I].getAsInteger(0, Source) || Source > 23)
+      if (Sources[I].getAsInteger(0, Source) || Source > 31)
         report_fatal_error("invalid Cobalt user-data source map");
       if (Source == *TargetSource)
         return 8u + I;
@@ -105,7 +116,7 @@ GetPackedUserDataSgprSlot(const Function &F, StringRef Name) {
   // Standalone llc input has no pipeline metadata. Recreate the canonical
   // descriptor-first packing from the live named formals.
   unsigned PackedIndex = 0;
-  for (unsigned Source = 0; Source <= 23; ++Source) {
+  for (unsigned Source = 0; Source <= 31; ++Source) {
     const Argument *SourceArg = nullptr;
     for (const Argument &Arg : F.args()) {
       if (GetUserDataSource(Arg.getName()) == Source) {
@@ -141,12 +152,12 @@ static bool getVSplatSgprIndex(SDValue Value, unsigned &Sgpr) {
   return true;
 }
 
-static SDValue makeSgprOperandALU(unsigned MachineOpcode, SDValue Vector,
-                                  unsigned Sgpr, SDNode *N,
+static SDValue makeSgprOperandALU(unsigned MachineOpcode, EVT ResultVT,
+                                  SDValue Vector, unsigned Sgpr, SDNode *N,
                                   SelectionDAG &DAG) {
   const SDLoc DL(N);
   return SDValue(
-      DAG.getMachineNode(MachineOpcode, DL, MVT::i32, Vector,
+      DAG.getMachineNode(MachineOpcode, DL, ResultVT, Vector,
                          DAG.getTargetConstant(Sgpr, DL, MVT::i32)),
       0);
 }
@@ -181,8 +192,12 @@ CobaltTargetLowering::CobaltTargetLowering(const TargetMachine &TM,
 
   setTargetDAGCombine(ISD::ADD);
   setTargetDAGCombine(ISD::SUB);
+  setTargetDAGCombine(ISD::MUL);
   setTargetDAGCombine(ISD::AND);
   setTargetDAGCombine(ISD::OR);
+  setTargetDAGCombine(ISD::XOR);
+  setTargetDAGCombine(ISD::FADD);
+  setTargetDAGCombine(ISD::FMUL);
   setTargetDAGCombine(ISD::SETCC);
 }
 
@@ -240,7 +255,7 @@ SDValue CobaltTargetLowering::LowerFormalArguments(
     unsigned AbiSlot = 0;
     if (ConsumesScalarArg) {
       AbiSlot = ScalarArg++;
-      if (AbiSlot >= std::size(ArgRegs))
+      if (!NamedSgpr && AbiSlot >= std::size(ArgRegs))
         report_fatal_error("Cobalt supports at most fourteen scalar arguments");
     }
 
@@ -354,7 +369,8 @@ SDValue CobaltTargetLowering::LowerOperation(SDValue Op,
 
 SDValue CobaltTargetLowering::PerformDAGCombine(SDNode *N,
                                                 DAGCombinerInfo &DCI) const {
-  if (N->getValueType(0) != MVT::i32)
+  if (N->getValueType(0) != MVT::i32 &&
+      N->getValueType(0) != MVT::f32)
     return SDValue();
 
   SelectionDAG &DAG = DCI.DAG;
@@ -365,36 +381,105 @@ SDValue CobaltTargetLowering::PerformDAGCombine(SDNode *N,
   switch (N->getOpcode()) {
   case ISD::ADD:
     if (getVSplatSgprIndex(RHS, Sgpr))
-      return makeSgprOperandALU(Cobalt::VADDSGPR, LHS, Sgpr, N, DAG);
+      return makeSgprOperandALU(Cobalt::VADDSGPR, MVT::i32, LHS, Sgpr, N,
+                                DAG);
     if (getVSplatSgprIndex(LHS, Sgpr))
-      return makeSgprOperandALU(Cobalt::VADDSGPR, RHS, Sgpr, N, DAG);
+      return makeSgprOperandALU(Cobalt::VADDSGPR, MVT::i32, RHS, Sgpr, N,
+                                DAG);
     break;
   case ISD::SUB:
     if (getVSplatSgprIndex(RHS, Sgpr))
-      return makeSgprOperandALU(Cobalt::VSUBSGPR, LHS, Sgpr, N, DAG);
+      return makeSgprOperandALU(Cobalt::VSUBSGPR, MVT::i32, LHS, Sgpr, N,
+                                DAG);
+    break;
+  case ISD::MUL:
+    if (getVSplatSgprIndex(RHS, Sgpr))
+      return makeSgprOperandALU(Cobalt::VMULSGPR, MVT::i32, LHS, Sgpr, N,
+                                DAG);
+    if (getVSplatSgprIndex(LHS, Sgpr))
+      return makeSgprOperandALU(Cobalt::VMULSGPR, MVT::i32, RHS, Sgpr, N,
+                                DAG);
     break;
   case ISD::AND:
     if (getVSplatSgprIndex(RHS, Sgpr))
-      return makeSgprOperandALU(Cobalt::VANDSGPR, LHS, Sgpr, N, DAG);
+      return makeSgprOperandALU(Cobalt::VANDSGPR, MVT::i32, LHS, Sgpr, N,
+                                DAG);
     if (getVSplatSgprIndex(LHS, Sgpr))
-      return makeSgprOperandALU(Cobalt::VANDSGPR, RHS, Sgpr, N, DAG);
+      return makeSgprOperandALU(Cobalt::VANDSGPR, MVT::i32, RHS, Sgpr, N,
+                                DAG);
     break;
   case ISD::OR:
     if (getVSplatSgprIndex(RHS, Sgpr))
-      return makeSgprOperandALU(Cobalt::VORSGPR, LHS, Sgpr, N, DAG);
+      return makeSgprOperandALU(Cobalt::VORSGPR, MVT::i32, LHS, Sgpr, N,
+                                DAG);
     if (getVSplatSgprIndex(LHS, Sgpr))
-      return makeSgprOperandALU(Cobalt::VORSGPR, RHS, Sgpr, N, DAG);
+      return makeSgprOperandALU(Cobalt::VORSGPR, MVT::i32, RHS, Sgpr, N,
+                                DAG);
+    break;
+  case ISD::XOR:
+    if (getVSplatSgprIndex(RHS, Sgpr))
+      return makeSgprOperandALU(Cobalt::VXORSGPR, MVT::i32, LHS, Sgpr, N,
+                                DAG);
+    if (getVSplatSgprIndex(LHS, Sgpr))
+      return makeSgprOperandALU(Cobalt::VXORSGPR, MVT::i32, RHS, Sgpr, N,
+                                DAG);
+    break;
+  case ISD::FADD:
+    if (getVSplatSgprIndex(RHS, Sgpr))
+      return makeSgprOperandALU(Cobalt::VFADDSGPR, MVT::f32, LHS, Sgpr, N,
+                                DAG);
+    if (getVSplatSgprIndex(LHS, Sgpr))
+      return makeSgprOperandALU(Cobalt::VFADDSGPR, MVT::f32, RHS, Sgpr, N,
+                                DAG);
+    break;
+  case ISD::FMUL:
+    if (getVSplatSgprIndex(RHS, Sgpr))
+      return makeSgprOperandALU(Cobalt::VFMULSGPR, MVT::f32, LHS, Sgpr, N,
+                                DAG);
+    if (getVSplatSgprIndex(LHS, Sgpr))
+      return makeSgprOperandALU(Cobalt::VFMULSGPR, MVT::f32, RHS, Sgpr, N,
+                                DAG);
     break;
   case ISD::SETCC:
     if (getVSplatSgprIndex(RHS, Sgpr)) {
       const auto CC = cast<CondCodeSDNode>(N->getOperand(2))->get();
+      const bool IsFP = LHS.getValueType() == MVT::f32;
       switch (CC) {
       case ISD::SETULT:
-        return makeSgprOperandALU(Cobalt::VCMPULTSGPR, LHS, Sgpr, N, DAG);
+        if (!IsFP)
+          return makeSgprOperandALU(Cobalt::VCMPULTSGPR, MVT::i32, LHS, Sgpr,
+                                    N, DAG);
+        break;
       case ISD::SETULE:
-        return makeSgprOperandALU(Cobalt::VCMPULESGPR, LHS, Sgpr, N, DAG);
+        if (!IsFP)
+          return makeSgprOperandALU(Cobalt::VCMPULESGPR, MVT::i32, LHS, Sgpr,
+                                    N, DAG);
+        break;
       case ISD::SETUGE:
-        return makeSgprOperandALU(Cobalt::VCMPUGESGPR, LHS, Sgpr, N, DAG);
+        if (!IsFP)
+          return makeSgprOperandALU(Cobalt::VCMPUGESGPR, MVT::i32, LHS, Sgpr,
+                                    N, DAG);
+        break;
+      case ISD::SETOEQ:
+        if (IsFP)
+          return makeSgprOperandALU(Cobalt::VFCMPEQSGPR, MVT::i32, LHS, Sgpr,
+                                    N, DAG);
+        break;
+      case ISD::SETUNE:
+        if (IsFP)
+          return makeSgprOperandALU(Cobalt::VFCMPNESGPR, MVT::i32, LHS, Sgpr,
+                                    N, DAG);
+        break;
+      case ISD::SETOLT:
+        if (IsFP)
+          return makeSgprOperandALU(Cobalt::VFCMPLTSGPR, MVT::i32, LHS, Sgpr,
+                                    N, DAG);
+        break;
+      case ISD::SETOLE:
+        if (IsFP)
+          return makeSgprOperandALU(Cobalt::VFCMPLESGPR, MVT::i32, LHS, Sgpr,
+                                    N, DAG);
+        break;
       default:
         break;
       }
