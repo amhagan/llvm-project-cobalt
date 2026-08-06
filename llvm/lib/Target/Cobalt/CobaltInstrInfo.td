@@ -429,6 +429,112 @@ def VATOMIADDS : CobaltInst<0x15,
   let hasSideEffects = 1;
 }
 
+class CobaltAtomicExternal<bits<4> AtomicOp, string Mnemonic>
+    : CobaltInst<0x2c,
+                 (outs VGPR32:$rd),
+                 (ins VGPR32:$addr, VGPR32:$val, i32imm:$binding),
+                 !strconcat(Mnemonic,
+                            " $rd, [$addr], $val, binding $binding")> {
+  bits<4> rd;
+  bits<4> addr;
+  bits<4> val;
+  bits<2> binding;
+
+  let Inst{25-22} = rd;
+  let Inst{21-18} = addr;
+  let Inst{17-14} = val;
+  let Inst{13} = 1;
+  let Inst{12} = 1;
+  let Inst{11-8} = AtomicOp;
+  let Inst{1-0} = binding;
+  let mayLoad = 1;
+  let mayStore = 1;
+  let hasSideEffects = 1;
+}
+
+class CobaltAtomicShared<bits<4> AtomicOp, string Mnemonic>
+    : CobaltInst<0x2c,
+                 (outs VGPR32:$rd),
+                 (ins VGPR32:$addr, VGPR32:$val),
+                 !strconcat(Mnemonic, " $rd, [$addr], $val")> {
+  bits<4> rd;
+  bits<4> addr;
+  bits<4> val;
+
+  let Inst{25-22} = rd;
+  let Inst{21-18} = addr;
+  let Inst{17-14} = val;
+  let Inst{11-8} = AtomicOp;
+  let mayLoad = 1;
+  let mayStore = 1;
+  let hasSideEffects = 1;
+}
+
+def VATOMXCHG  : CobaltAtomicExternal<1, "vatomxchg">;
+def VATOMXCHGS : CobaltAtomicShared<1, "vatomxchgs">;
+def VATOMSMIN  : CobaltAtomicExternal<3, "vatomsmin">;
+def VATOMSMINS : CobaltAtomicShared<3, "vatomsmins">;
+def VATOMUMIN  : CobaltAtomicExternal<4, "vatomumin">;
+def VATOMUMINS : CobaltAtomicShared<4, "vatomumins">;
+def VATOMSMAX  : CobaltAtomicExternal<5, "vatomsmax">;
+def VATOMSMAXS : CobaltAtomicShared<5, "vatomsmaxs">;
+def VATOMUMAX  : CobaltAtomicExternal<6, "vatomumax">;
+def VATOMUMAXS : CobaltAtomicShared<6, "vatomumaxs">;
+def VATOMAND   : CobaltAtomicExternal<7, "vatomand">;
+def VATOMANDS  : CobaltAtomicShared<7, "vatomands">;
+def VATOMOR    : CobaltAtomicExternal<8, "vatomor">;
+def VATOMORS   : CobaltAtomicShared<8, "vatomors">;
+def VATOMXOR   : CobaltAtomicExternal<9, "vatomxor">;
+def VATOMXORS  : CobaltAtomicShared<9, "vatomxors">;
+
+class CobaltAtomicCmpXchgExternal<string Mnemonic>
+    : CobaltInst<0x2c,
+                 (outs VGPR32:$rd),
+                 (ins VGPR32:$addr, VGPR32:$val, VGPR32:$compare,
+                      i32imm:$binding),
+                 !strconcat(Mnemonic,
+                            " $rd, [$addr], $val, $compare, binding $binding")> {
+  bits<4> rd;
+  bits<4> addr;
+  bits<4> val;
+  bits<2> binding;
+
+  let Constraints = "$rd = $compare";
+  let Inst{25-22} = rd;
+  let Inst{21-18} = addr;
+  let Inst{17-14} = val;
+  let Inst{13} = 1;
+  let Inst{12} = 1;
+  let Inst{11-8} = 2;
+  let Inst{1-0} = binding;
+  let mayLoad = 1;
+  let mayStore = 1;
+  let hasSideEffects = 1;
+}
+
+class CobaltAtomicCmpXchgShared<string Mnemonic>
+    : CobaltInst<0x2c,
+                 (outs VGPR32:$rd),
+                 (ins VGPR32:$addr, VGPR32:$val, VGPR32:$compare),
+                 !strconcat(Mnemonic,
+                            " $rd, [$addr], $val, $compare")> {
+  bits<4> rd;
+  bits<4> addr;
+  bits<4> val;
+
+  let Constraints = "$rd = $compare";
+  let Inst{25-22} = rd;
+  let Inst{21-18} = addr;
+  let Inst{17-14} = val;
+  let Inst{11-8} = 2;
+  let mayLoad = 1;
+  let mayStore = 1;
+  let hasSideEffects = 1;
+}
+
+def VATOMCMPXCHG  : CobaltAtomicCmpXchgExternal<"vatomcmpxchg">;
+def VATOMCMPXCHGS : CobaltAtomicCmpXchgShared<"vatomcmpxchgs">;
+
 def VBR : CobaltInst<0x08,
                      (outs),
                      (ins i32imm:$imm),

@@ -251,16 +251,60 @@ void CobaltDAGToDAGISel::Select(SDNode *N) {
     }
     break;
   }
-  case ISD::ATOMIC_LOAD_ADD: {
+  case ISD::ATOMIC_LOAD_ADD:
+  case ISD::ATOMIC_SWAP:
+  case ISD::ATOMIC_LOAD_AND:
+  case ISD::ATOMIC_LOAD_OR:
+  case ISD::ATOMIC_LOAD_XOR:
+  case ISD::ATOMIC_LOAD_MIN:
+  case ISD::ATOMIC_LOAD_MAX:
+  case ISD::ATOMIC_LOAD_UMIN:
+  case ISD::ATOMIC_LOAD_UMAX: {
     auto *Atomic = cast<AtomicSDNode>(N);
     if (Atomic->getMemoryVT() != MVT::i32)
       break;
 
     const bool IsWorkgroup =
         Atomic->getAddressSpace() == CobaltAS::Workgroup;
-    const unsigned Opc = IsWorkgroup
-                             ? Cobalt::VATOMIADDS
-                             : Cobalt::VATOMIADD;
+    unsigned ExternalOpc = Cobalt::VATOMIADD;
+    unsigned SharedOpc = Cobalt::VATOMIADDS;
+    switch (N->getOpcode()) {
+    case ISD::ATOMIC_SWAP:
+      ExternalOpc = Cobalt::VATOMXCHG;
+      SharedOpc = Cobalt::VATOMXCHGS;
+      break;
+    case ISD::ATOMIC_LOAD_AND:
+      ExternalOpc = Cobalt::VATOMAND;
+      SharedOpc = Cobalt::VATOMANDS;
+      break;
+    case ISD::ATOMIC_LOAD_OR:
+      ExternalOpc = Cobalt::VATOMOR;
+      SharedOpc = Cobalt::VATOMORS;
+      break;
+    case ISD::ATOMIC_LOAD_XOR:
+      ExternalOpc = Cobalt::VATOMXOR;
+      SharedOpc = Cobalt::VATOMXORS;
+      break;
+    case ISD::ATOMIC_LOAD_MIN:
+      ExternalOpc = Cobalt::VATOMSMIN;
+      SharedOpc = Cobalt::VATOMSMINS;
+      break;
+    case ISD::ATOMIC_LOAD_MAX:
+      ExternalOpc = Cobalt::VATOMSMAX;
+      SharedOpc = Cobalt::VATOMSMAXS;
+      break;
+    case ISD::ATOMIC_LOAD_UMIN:
+      ExternalOpc = Cobalt::VATOMUMIN;
+      SharedOpc = Cobalt::VATOMUMINS;
+      break;
+    case ISD::ATOMIC_LOAD_UMAX:
+      ExternalOpc = Cobalt::VATOMUMAX;
+      SharedOpc = Cobalt::VATOMUMAXS;
+      break;
+    default:
+      break;
+    }
+    const unsigned Opc = IsWorkgroup ? SharedOpc : ExternalOpc;
     if (IsWorkgroup) {
       SDValue Ops[] = {N->getOperand(1), N->getOperand(2), N->getOperand(0)};
       CurDAG->SelectNodeTo(N, Opc, CurDAG->getVTList(MVT::i32, MVT::Other),
@@ -274,6 +318,35 @@ void CobaltDAGToDAGISel::Select(SDNode *N) {
       break;
     SDValue Ops[] = {
         N->getOperand(1), N->getOperand(2),
+        CurDAG->getTargetConstant(*Binding, DL, MVT::i32), N->getOperand(0)};
+    CurDAG->SelectNodeTo(N, Opc, CurDAG->getVTList(MVT::i32, MVT::Other),
+                         Ops);
+    return;
+  }
+  case ISD::ATOMIC_CMP_SWAP: {
+    auto *Atomic = cast<AtomicSDNode>(N);
+    if (Atomic->getMemoryVT() != MVT::i32)
+      break;
+
+    const bool IsWorkgroup =
+        Atomic->getAddressSpace() == CobaltAS::Workgroup;
+    const unsigned Opc = IsWorkgroup
+                             ? Cobalt::VATOMCMPXCHGS
+                             : Cobalt::VATOMCMPXCHG;
+    if (IsWorkgroup) {
+      SDValue Ops[] = {N->getOperand(1), N->getOperand(3),
+                       N->getOperand(2), N->getOperand(0)};
+      CurDAG->SelectNodeTo(N, Opc, CurDAG->getVTList(MVT::i32, MVT::Other),
+                           Ops);
+      return;
+    }
+
+    const std::optional<unsigned> Binding =
+        getDescriptorBinding(Atomic->getAddressSpace(), false);
+    if (!Binding)
+      break;
+    SDValue Ops[] = {
+        N->getOperand(1), N->getOperand(3), N->getOperand(2),
         CurDAG->getTargetConstant(*Binding, DL, MVT::i32), N->getOperand(0)};
     CurDAG->SelectNodeTo(N, Opc, CurDAG->getVTList(MVT::i32, MVT::Other),
                          Ops);
