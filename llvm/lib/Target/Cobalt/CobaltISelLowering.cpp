@@ -181,6 +181,8 @@ CobaltTargetLowering::CobaltTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::ConstantFP, MVT::f32, Legal);
   setOperationAction(ISD::FADD, MVT::f32, Legal);
   setOperationAction(ISD::FMUL, MVT::f32, Legal);
+  setOperationAction(ISD::UDIV, MVT::i32, Legal);
+  setOperationAction(ISD::UREM, MVT::i32, Legal);
   setOperationAction(ISD::ATOMIC_LOAD_ADD, MVT::i32, Legal);
   setOperationAction(ISD::ATOMIC_SWAP, MVT::i32, Legal);
   setOperationAction(ISD::ATOMIC_CMP_SWAP, MVT::i32, Legal);

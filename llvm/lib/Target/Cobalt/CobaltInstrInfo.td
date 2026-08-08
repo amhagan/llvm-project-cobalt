@@ -111,6 +111,11 @@ def VFADD : CobaltFRR<0x0d, "vfadd",
 def VFMUL : CobaltFRR<0x0e, "vfmul",
                       [(set FGPR32:$rd, (fmul FGPR32:$ra, FGPR32:$rb))]>;
 
+def VUDIV : CobaltRRR<0x2d, "vudiv",
+                      [(set VGPR32:$rd, (udiv VGPR32:$ra, VGPR32:$rb))]>;
+def VUMOD : CobaltRRR<0x2e, "vumod",
+                      [(set VGPR32:$rd, (urem VGPR32:$ra, VGPR32:$rb))]>;
+
 class CobaltFCmp<bits<6> Opcode, string Mnemonic, list<dag> Pat = []>
     : CobaltInst<Opcode,
                  (outs VGPR32:$rd),
