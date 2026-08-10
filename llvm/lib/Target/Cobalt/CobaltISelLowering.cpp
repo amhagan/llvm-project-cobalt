@@ -180,7 +180,14 @@ CobaltTargetLowering::CobaltTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::SELECT, MVT::f32, Legal);
   setOperationAction(ISD::ConstantFP, MVT::f32, Legal);
   setOperationAction(ISD::FADD, MVT::f32, Legal);
+  setOperationAction(ISD::FSUB, MVT::f32, Legal);
+  setOperationAction(ISD::FNEG, MVT::f32, Legal);
+  setOperationAction(ISD::FABS, MVT::f32, Legal);
   setOperationAction(ISD::FMUL, MVT::f32, Legal);
+  setOperationAction(ISD::SINT_TO_FP, MVT::f32, Legal);
+  setOperationAction(ISD::UINT_TO_FP, MVT::f32, Legal);
+  setOperationAction(ISD::FP_TO_SINT, MVT::i32, Legal);
+  setOperationAction(ISD::FP_TO_UINT, MVT::i32, Legal);
   setOperationAction(ISD::UDIV, MVT::i32, Legal);
   setOperationAction(ISD::UREM, MVT::i32, Legal);
   setOperationAction(ISD::ATOMIC_LOAD_ADD, MVT::i32, Legal);
@@ -208,6 +215,7 @@ CobaltTargetLowering::CobaltTargetLowering(const TargetMachine &TM,
   setTargetDAGCombine(ISD::OR);
   setTargetDAGCombine(ISD::XOR);
   setTargetDAGCombine(ISD::FADD);
+  setTargetDAGCombine(ISD::FSUB);
   setTargetDAGCombine(ISD::FMUL);
   setTargetDAGCombine(ISD::SETCC);
 }

@@ -111,6 +111,51 @@ def VFADD : CobaltFRR<0x0d, "vfadd",
 def VFMUL : CobaltFRR<0x0e, "vfmul",
                       [(set FGPR32:$rd, (fmul FGPR32:$ra, FGPR32:$rb))]>;
 
+class CobaltFUnary<bits<6> Opcode, string Mnemonic, list<dag> Pat = []>
+    : CobaltInst<Opcode,
+                 (outs FGPR32:$rd),
+                 (ins FGPR32:$ra),
+                 !strconcat(Mnemonic, " $rd, $ra"),
+                 Pat> {
+  bits<4> rd;
+  bits<4> ra;
+  let Inst{25-22} = rd;
+  let Inst{21-18} = ra;
+}
+
+class CobaltIToF<bits<6> Opcode, string Mnemonic, list<dag> Pat = []>
+    : CobaltInst<Opcode, (outs FGPR32:$rd), (ins VGPR32:$ra),
+                 !strconcat(Mnemonic, " $rd, $ra"), Pat> {
+  bits<4> rd;
+  bits<4> ra;
+  let Inst{25-22} = rd;
+  let Inst{21-18} = ra;
+}
+
+class CobaltFToI<bits<6> Opcode, string Mnemonic, list<dag> Pat = []>
+    : CobaltInst<Opcode, (outs VGPR32:$rd), (ins FGPR32:$ra),
+                 !strconcat(Mnemonic, " $rd, $ra"), Pat> {
+  bits<4> rd;
+  bits<4> ra;
+  let Inst{25-22} = rd;
+  let Inst{21-18} = ra;
+}
+
+def VFNEG : CobaltFUnary<0x2f, "vfneg",
+                         [(set FGPR32:$rd, (fneg FGPR32:$ra))]>;
+def VFSUB : CobaltFRR<0x30, "vfsub",
+                      [(set FGPR32:$rd, (fsub FGPR32:$ra, FGPR32:$rb))]>;
+def VSITOFP : CobaltIToF<0x31, "vsitofp",
+                         [(set FGPR32:$rd, (sint_to_fp VGPR32:$ra))]>;
+def VUITOFP : CobaltIToF<0x32, "vuitofp",
+                         [(set FGPR32:$rd, (uint_to_fp VGPR32:$ra))]>;
+def VFPTOSI : CobaltFToI<0x33, "vfptosi",
+                         [(set VGPR32:$rd, (fp_to_sint FGPR32:$ra))]>;
+def VFPTOUI : CobaltFToI<0x34, "vfptoui",
+                         [(set VGPR32:$rd, (fp_to_uint FGPR32:$ra))]>;
+def VFABS : CobaltFUnary<0x35, "vfabs",
+                         [(set FGPR32:$rd, (fabs FGPR32:$ra))]>;
+
 def VUDIV : CobaltRRR<0x2d, "vudiv",
                       [(set VGPR32:$rd, (udiv VGPR32:$ra, VGPR32:$rb))]>;
 def VUMOD : CobaltRRR<0x2e, "vumod",
