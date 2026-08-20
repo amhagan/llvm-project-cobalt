@@ -43,17 +43,14 @@ void CobaltInstrInfo::storeRegToStackSlot(
     MachineBasicBlock &MBB, MachineBasicBlock::iterator MI, Register SrcReg,
     bool isKill, int FrameIndex, const TargetRegisterClass *RC, Register VReg,
     MachineInstr::MIFlag Flags) const {
-  (void)MBB;
-  (void)MI;
-  (void)SrcReg;
-  (void)isKill;
-  (void)FrameIndex;
-  (void)RC;
   (void)VReg;
-  (void)Flags;
-  // Bring-up placeholder: real stack-slot spills need a scratch/SGPR-backed
-  // frame model. Most shader IR should be promoted before codegen; this avoids
-  // hard aborts while branch lowering is being brought up.
+  const unsigned Opcode = RC == &Cobalt::FGPR32RegClass
+                              ? Cobalt::VSTPRIVF
+                              : Cobalt::VSTPRIV;
+  BuildMI(MBB, MI, DebugLoc(), get(Opcode))
+      .addReg(SrcReg, getKillRegState(isKill))
+      .addFrameIndex(FrameIndex)
+      .setMIFlag(Flags);
 }
 
 void CobaltInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
@@ -62,10 +59,12 @@ void CobaltInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
                                            const TargetRegisterClass *RC,
                                            Register VReg, unsigned SubReg,
                                            MachineInstr::MIFlag Flags) const {
-  (void)FrameIndex;
-  (void)RC;
   (void)VReg;
   (void)SubReg;
-  (void)Flags;
-  BuildMI(MBB, MI, DebugLoc(), get(Cobalt::VMOVI), DestReg).addImm(0);
+  const unsigned Opcode = RC == &Cobalt::FGPR32RegClass
+                              ? Cobalt::VLDPRIVF
+                              : Cobalt::VLDPRIV;
+  BuildMI(MBB, MI, DebugLoc(), get(Opcode), DestReg)
+      .addFrameIndex(FrameIndex)
+      .setMIFlag(Flags);
 }

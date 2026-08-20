@@ -155,6 +155,23 @@ def VFPTOUI : CobaltFToI<0x34, "vfptoui",
                          [(set VGPR32:$rd, (fp_to_uint FGPR32:$ra))]>;
 def VFABS : CobaltFUnary<0x35, "vfabs",
                          [(set FGPR32:$rd, (fabs FGPR32:$ra))]>;
+def VFMA : CobaltInst<0x36,
+                      (outs FGPR32:$rd),
+                      (ins FGPR32:$ra, FGPR32:$rb, FGPR32:$accumulator),
+                      "vfma $rd, $ra, $rb",
+                      [(set FGPR32:$rd,
+                            (fma FGPR32:$ra, FGPR32:$rb,
+                                 FGPR32:$accumulator))]> {
+  bits<4> rd;
+  bits<4> ra;
+  bits<4> rb;
+
+  // Two-address form: rd supplies the accumulator before writeback.
+  let Constraints = "$rd = $accumulator";
+  let Inst{25-22} = rd;
+  let Inst{21-18} = ra;
+  let Inst{17-14} = rb;
+}
 
 def VUDIV : CobaltRRR<0x2d, "vudiv",
                       [(set VGPR32:$rd, (udiv VGPR32:$ra, VGPR32:$rb))]>;
@@ -401,6 +418,47 @@ def VSTF : CobaltInst<0x11,
   let hasSideEffects = 1;
 }
 
+// Register spills use the existing per-lane, per-waveslot private scratch
+// path. The offset is a word index; r15 is initialized to zero in the kernel
+// prologue and supplies both address operands required by the ISA encoding.
+class CobaltPrivateLoad<bits<6> Opcode, RegisterClass RC, string Mnemonic>
+    : CobaltInst<Opcode,
+                 (outs RC:$rd),
+                 (ins i32imm:$offset),
+                 !strconcat(Mnemonic, " $rd, [$offset]")> {
+  bits<4> rd;
+  bits<8> offset;
+
+  let Inst{25-22} = rd;
+  let Inst{21-18} = 15;
+  let Inst{17-14} = 15;
+  let Inst{13} = 0;
+  let Inst{7-0} = offset;
+  let mayLoad = 1;
+}
+
+class CobaltPrivateStore<bits<6> Opcode, RegisterClass RC, string Mnemonic>
+    : CobaltInst<Opcode,
+                 (outs),
+                 (ins RC:$src, i32imm:$offset),
+                 !strconcat(Mnemonic, " $src, [$offset]")> {
+  bits<4> src;
+  bits<8> offset;
+
+  let Inst{25-22} = src;
+  let Inst{21-18} = 15;
+  let Inst{17-14} = 15;
+  let Inst{13} = 0;
+  let Inst{7-0} = offset;
+  let mayStore = 1;
+  let hasSideEffects = 1;
+}
+
+def VLDPRIV  : CobaltPrivateLoad<0x10, VGPR32, "vld.private">;
+def VLDPRIVF : CobaltPrivateLoad<0x10, FGPR32, "vld.private">;
+def VSTPRIV  : CobaltPrivateStore<0x11, VGPR32, "vst.private">;
+def VSTPRIVF : CobaltPrivateStore<0x11, FGPR32, "vst.private">;
+
 def VLDS : CobaltInst<0x12,
                       (outs VGPR32:$rd),
                       (ins VGPR32:$addr),
@@ -417,6 +475,21 @@ def VLDS : CobaltInst<0x12,
   let mayLoad = 1;
 }
 
+// LDS is physically untyped. This alias selects the same encoding while
+// keeping FP32 values in the floating-point register class.
+def VLDSF : CobaltInst<0x12,
+                       (outs FGPR32:$rd),
+                       (ins VGPR32:$addr),
+                       "vlds $rd, [$addr]"> {
+  bits<4> rd;
+  bits<4> addr;
+
+  let Inst{25-22} = rd;
+  let Inst{21-18} = addr;
+  let Inst{17-14} = 15;
+  let mayLoad = 1;
+}
+
 def VSTS : CobaltInst<0x13,
                       (outs),
                       (ins VGPR32:$src, VGPR32:$addr),
@@ -427,6 +500,22 @@ def VSTS : CobaltInst<0x13,
   // Workgroup/shared memory is byte-addressed. The current b32 form requires
   // bits [1:0] of $addr to be zero; unaligned behavior is undefined during
   // bring-up. Future b8/b16/b64 forms should keep the same byte-offset model.
+  let Inst{25-22} = src;
+  let Inst{21-18} = addr;
+  let Inst{17-14} = 15;
+  let mayStore = 1;
+  let hasSideEffects = 1;
+}
+
+// LDS is physically untyped. This alias selects the same encoding while
+// accepting FP32 values from the floating-point register class.
+def VSTSF : CobaltInst<0x13,
+                       (outs),
+                       (ins FGPR32:$src, VGPR32:$addr),
+                       "vsts $src, [$addr]"> {
+  bits<4> src;
+  bits<4> addr;
+
   let Inst{25-22} = src;
   let Inst{21-18} = addr;
   let Inst{17-14} = 15;

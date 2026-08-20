@@ -175,8 +175,11 @@ void CobaltDAGToDAGISel::Select(SDNode *N) {
   case ISD::LOAD: {
     auto *Ld = cast<LoadSDNode>(N);
     if (Ld->getAddressSpace() == CobaltAS::Workgroup &&
-        Ld->getMemoryVT() == MVT::i32) {
-      CurDAG->SelectNodeTo(N, Cobalt::VLDS, MVT::i32, MVT::Other,
+        (Ld->getMemoryVT() == MVT::i32 ||
+         Ld->getMemoryVT() == MVT::f32)) {
+      const unsigned Opc =
+          Ld->getMemoryVT() == MVT::f32 ? Cobalt::VLDSF : Cobalt::VLDS;
+      CurDAG->SelectNodeTo(N, Opc, Ld->getMemoryVT().getSimpleVT(), MVT::Other,
                            N->getOperand(1), N->getOperand(0));
       return;
     }
@@ -199,8 +202,11 @@ void CobaltDAGToDAGISel::Select(SDNode *N) {
   case ISD::STORE: {
     auto *St = cast<StoreSDNode>(N);
     if (St->getAddressSpace() == CobaltAS::Workgroup &&
-        St->getMemoryVT() == MVT::i32) {
-      CurDAG->SelectNodeTo(N, Cobalt::VSTS, MVT::Other, N->getOperand(1),
+        (St->getMemoryVT() == MVT::i32 ||
+         St->getMemoryVT() == MVT::f32)) {
+      const unsigned Opc =
+          St->getMemoryVT() == MVT::f32 ? Cobalt::VSTSF : Cobalt::VSTS;
+      CurDAG->SelectNodeTo(N, Opc, MVT::Other, N->getOperand(1),
                            N->getOperand(2), N->getOperand(0));
       return;
     }
